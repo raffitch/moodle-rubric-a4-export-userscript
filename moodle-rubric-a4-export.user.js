@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.9
+// @version      4.3.10
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -406,12 +406,14 @@
         probe.remove();
         return { width: rect.width || 0, height: rect.height || 0 };
       }
-      function syncShell(scale){
+      function syncShell(scale, pageH){
         var nodes = getRubricNodes();
         if (!nodes.shell || !nodes.content) return;
         var height = nodes.content.scrollHeight || 0;
         if (scale && scale !== 1) height = Math.ceil(height * scale);
+        if (pageH) height = Math.min(height, pageH);
         nodes.shell.style.height = height + 'px';
+        if (pageH) nodes.shell.style.maxHeight = pageH + 'px';
       }
       function autoFitToOnePage(){
         try{

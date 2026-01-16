@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.11
+// @version      4.3.12
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -312,18 +312,18 @@
 <meta charset="utf-8">
 <title>Rubric – ${student ? student + ' – ' : ''}${assignment || 'Assignment'}</title>
 <style>
-  :root{ --page-width: 277mm; --page-height: 190mm; }
+  :root{ --page-width: 277mm; --page-height: 190mm; --fit-scale: 1; }
   @page { size: A4 landscape; margin: 10mm; }
   html, body { background:#fff; }
   body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 9px; line-height: 1.33; margin: 0; }
   h1 { font-size: 14px; margin: 0 0 6px 0; }
   h2 { font-size: 12px; margin: 0 0 6px 0; }
 
-  .page { width: var(--page-width); min-height: var(--page-height); height: var(--page-height); margin: 0 auto; page-break-inside: avoid; overflow: hidden; }
+  .page { width: var(--page-width); min-height: var(--page-height); height: var(--page-height); margin: 0 auto; page-break-inside: avoid; overflow: hidden; display: flex; align-items: flex-start; }
   .page + .page { break-before: page; page-break-before: always; }
 
-  .rubric-shell { position: relative; width: 100%; max-width: var(--page-width); overflow: hidden; }
-  .rubric-content { position: absolute; top: 0; left: 0; width: 100%; max-width: var(--page-width); transform-origin: top left; }
+  .rubric-shell { position: relative; width: calc(var(--page-width) / var(--fit-scale)); max-width: none; transform: scale(var(--fit-scale)); transform-origin: top left; }
+  .rubric-content { position: relative; width: 100%; max-width: none; }
 
   .meta { margin: 0 0 6px 0; font-size: 9px; color:#333;
           display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 16px; }
@@ -407,42 +407,33 @@
         probe.remove();
         return { width: rect.width || 0, height: rect.height || 0 };
       }
-      function syncShell(scale, pageH){
+      function setScale(scale){
+        document.documentElement.style.setProperty('--fit-scale', scale);
         var nodes = getRubricNodes();
-        if (!nodes.shell || !nodes.content) return;
-        var height = nodes.content.scrollHeight || 0;
-        if (scale && scale !== 1) height = Math.ceil(height * scale);
-        if (pageH) height = Math.min(height, pageH);
-        nodes.shell.style.height = height + 'px';
-        if (pageH) nodes.shell.style.maxHeight = pageH + 'px';
-        nodes.shell.style.overflow = 'hidden';
+        if (nodes.shell) nodes.shell.style.width = 'calc(var(--page-width) / ' + scale + ')';
       }
       function autoFitToOnePage(){
         try{
           var nodes = getRubricNodes();
-          if (!nodes.shell || !nodes.content) return;
+          if (!nodes.shell) return;
           var page = getPagePx();
-          document.documentElement.classList.add('fit');
-          nodes.content.style.transform = 'scale(1)';
-          syncShell(1, page.height);
-          var contentHeight = nodes.content.scrollHeight || 0;
-          var contentWidth = nodes.content.scrollWidth || 0;
+          setScale(1);
+          nodes.shell.style.width = 'var(--page-width)';
+          var contentHeight = nodes.shell.scrollHeight || nodes.shell.getBoundingClientRect().height || 0;
+          var contentWidth = nodes.shell.scrollWidth || nodes.shell.getBoundingClientRect().width || 0;
           if (contentHeight <= 0 || contentWidth <= 0) return;
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
           s = Math.min(1, Math.max(0.4, s * 0.95));
-          nodes.content.style.transform = 'scale(' + s + ')';
-          syncShell(s, page.height);
+          setScale(s);
         }catch(e){ /* ignore */ }
       }
       function resetFit(){
         try{
+          setScale(1);
           var nodes = getRubricNodes();
-          if (!nodes.shell || !nodes.content) return;
-          document.documentElement.classList.remove('fit');
-          nodes.content.style.transform = 'scale(1)';
-          syncShell(1, getPagePx().height);
+          if (nodes.shell) nodes.shell.style.width = 'var(--page-width)';
         }catch(e){ /* ignore */ }
       }
       window.__rtAutoFit = autoFitToOnePage;

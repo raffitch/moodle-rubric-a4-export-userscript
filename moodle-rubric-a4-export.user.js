@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.16
+// @version      4.3.17
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -313,7 +313,7 @@
 <title>Rubric – ${student ? student + ' – ' : ''}${assignment || 'Assignment'}</title>
 <style>
   /* Design against a wide page; choose portrait/landscape in print dialog */
-  :root{ --page-width: 277mm; --page-height: 190mm; --fit-scale: 1; }
+  :root{ --page-width: 277mm; --page-height: 190mm; --fit-scale: 1; --level-min: 130px; --level-gap: 6px; }
   @page { size: A4; margin: 10mm; }
   html, body { background:#fff; }
   body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 9px; line-height: 1.33; margin: 0; }
@@ -339,7 +339,7 @@
   .cr { color:#444; font-style: italic; }
 
   /* Levels as grid that wraps to fit width */
-  .levels { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); grid-auto-flow: row dense; gap: 6px; align-items: stretch; }
+  .levels { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(var(--level-min), 1fr)); grid-auto-flow: row dense; gap: var(--level-gap); align-items: stretch; }
   .level { border:1px solid #eee; border-radius: 4px; padding: 4px; break-inside: avoid; }
   .tok { font-weight: 800; margin-bottom: 2px; text-align: center; }
   .tok .pts { font-weight: 600; opacity: .85; }
@@ -408,10 +408,23 @@
         probe.remove();
         return { width: rect.width || 0, height: rect.height || 0 };
       }
+      function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
       function setScale(scale){
-        document.documentElement.style.setProperty('--fit-scale', scale);
+        var s = clamp(scale || 1, 0.35, 1.05);
+        document.documentElement.style.setProperty('--fit-scale', s);
         var nodes = getRubricNodes();
-        if (nodes.shell) nodes.shell.style.width = 'calc(var(--page-width) / ' + scale + ')';
+        if (nodes.shell) nodes.shell.style.width = 'calc(var(--page-width) / ' + s + ')';
+      }
+      function setLayout(opts){
+        if (opts && typeof opts.minWidth === 'number'){
+          var mw = clamp(opts.minWidth, 90, 240);
+          document.documentElement.style.setProperty('--level-min', mw + 'px');
+        }
+        if (opts && typeof opts.gap === 'number'){
+          var g = clamp(opts.gap, 2, 14);
+          document.documentElement.style.setProperty('--level-gap', g + 'px');
+        }
+        autoFitToOnePage();
       }
       function autoFitToOnePage(){
         try{
@@ -426,7 +439,7 @@
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
-          s = Math.min(1, Math.max(0.4, s * 0.95));
+          s = clamp(s * 0.95, 0.35, 1);
           setScale(s);
         }catch(e){ /* ignore */ }
       }
@@ -439,6 +452,7 @@
       }
       window.__rtAutoFit = autoFitToOnePage;
       window.__rtResetFit = resetFit;
+      window.__rtSetLayout = setLayout;
 
       var fitToggle = document.getElementById('fitToggle');
       if (fitToggle) fitToggle.checked = true;
@@ -507,6 +521,7 @@
       }
       .bar button { padding: 6px 10px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; font: 12px system-ui; }
       .bar label { font: 12px system-ui; display:inline-flex; align-items:center; gap:6px; }
+      .bar .slider input[type="range"]{ width:140px; }
       .frame { flex: 1 1 auto; border: 0; width: 100%; }
       @media print { #rtInlineExportRoot { display: none !important; } }
     `;
@@ -514,6 +529,7 @@
       <div class="sheet">
         <div class="bar">
           <label style="display:inline-flex;align-items:center;gap:6px;"><input id="overlayFit" type="checkbox" checked/> Fit to 1 page</label>
+          <label class="slider">Min col width <input id="overlayMin" type="range" min="110" max="220" value="130" step="5"/><span id="overlayMinVal">130px</span></label>
           <button id="overlayPrint" class="primary" type="button">Print / Save as PDF</button>
           <div style="margin-left:auto;font:12px system-ui;color:#555">A4 landscape — rubric auto-fit</div>
           <button id="close" type="button">Close</button>
@@ -532,6 +548,8 @@
     const closeBtn = $('#close');
     const fitToggle = $('#overlayFit');
     const printBtn = $('#overlayPrint');
+    const minRange = $('#overlayMin');
+    const minVal = $('#overlayMinVal');
     const closeInline = () => {
       try { root.style.display = 'none'; } catch(_){ }
       try { if (window.__rtShowPanel) window.__rtShowPanel(); } catch(_){ }
@@ -545,9 +563,21 @@
         }catch(_){ }
       });
     };
+    const applyLayout = () => {
+      const mw = parseInt(minRange?.value || '130', 10);
+      if (minVal) minVal.textContent = (isFinite(mw) ? mw : 130) + 'px';
+      withFrame((win) => {
+        try{
+          if (win.__rtSetLayout) { win.__rtSetLayout({ minWidth: mw }); return; }
+          if (win.__rtAutoFit) win.__rtAutoFit();
+        }catch(_){ }
+      });
+    };
     if (closeBtn) closeBtn.addEventListener('click', closeInline);
     if (fitToggle) fitToggle.addEventListener('change', () => { runFit(); });
+    if (minRange) minRange.addEventListener('input', () => { applyLayout(); });
     if (printBtn) printBtn.addEventListener('click', () => {
+      applyLayout();
       runFit();
       withFrame((win) => { try{ win.focus(); win.print(); }catch(_){ } });
     });
@@ -555,9 +585,11 @@
     function writeToIframe() {
       const doc = frame.contentDocument || frame.contentWindow?.document;
       if (!doc) return false;
-      doc.open(); doc.write(html); doc.close(); runFit(); return true;
+      doc.open(); doc.write(html); doc.close();
+      setTimeout(() => { applyLayout(); runFit(); }, 30);
+      return true;
     }
-    if (!writeToIframe()) frame.addEventListener('load', () => { if (writeToIframe()) runFit(); }, { once: true });
+    if (!writeToIframe()) frame.addEventListener('load', () => { if (writeToIframe()) { setTimeout(() => { applyLayout(); runFit(); }, 30); } }, { once: true });
   }
 
   function printViaIframe(html) {

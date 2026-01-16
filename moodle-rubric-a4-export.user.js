@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.8
+// @version      4.3.9
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -319,7 +319,7 @@
   h1 { font-size: 14px; margin: 0 0 6px 0; }
   h2 { font-size: 12px; margin: 0 0 6px 0; }
 
-  .page { width: var(--page-width); min-height: var(--page-height); margin: 0 auto; }
+  .page { width: var(--page-width); min-height: var(--page-height); margin: 0 auto; page-break-inside: avoid; }
   .page + .page { break-before: page; page-break-before: always; }
 
   .rubric-shell { position: relative; width: 100%; max-width: var(--page-width); }
@@ -344,8 +344,8 @@
   .tok .pts { font-weight: 600; opacity: .85; }
   .ldesc { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
   .sel { background:#eaf5ea; outline:1.4px solid #22a322; outline-offset:-1.4px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; overflow: hidden; height: var(--page-height); }
-  .feedback-page { page-break-before: always; break-before: page; min-height: var(--page-height); }
+  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; }
+  .feedback-page { page-break-before: always; break-before: page; }
 
   .blocks { margin-top: 6px; display:grid; grid-template-columns:1fr; gap:6px 16px; }
   .block  { border:1px solid #ddd; padding:6px; border-radius:6px; }
@@ -406,14 +406,12 @@
         probe.remove();
         return { width: rect.width || 0, height: rect.height || 0 };
       }
-      function syncShell(scale, maxH){
+      function syncShell(scale){
         var nodes = getRubricNodes();
         if (!nodes.shell || !nodes.content) return;
         var height = nodes.content.scrollHeight || 0;
         if (scale && scale !== 1) height = Math.ceil(height * scale);
-        if (maxH) height = Math.min(height, maxH);
         nodes.shell.style.height = height + 'px';
-        nodes.shell.style.maxHeight = maxH ? (maxH + 'px') : 'none';
       }
       function autoFitToOnePage(){
         try{
@@ -429,9 +427,9 @@
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
-          s = Math.max(0.55, Math.min(1, s * 0.97));
+          s = Math.max(0.5, Math.min(1, s * 0.97));
           nodes.content.style.transform = 'scale(' + s + ')';
-          syncShell(s, Math.floor(page.height));
+          syncShell(s);
         }catch(e){ /* ignore */ }
       }
       function resetFit(){

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.17
+// @version      4.3.18
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -397,12 +397,15 @@
         };
       }
       function getPagePx(){
-        // Measure the printable box (A4 landscape minus 10mm margins) in real px
+        // Measure the printable box using the configured CSS vars (page width/height)
         var probe = document.createElement('div');
+        var root = getComputedStyle(document.documentElement);
+        var w = root.getPropertyValue('--page-width') || '277mm';
+        var h = root.getPropertyValue('--page-height') || '190mm';
         probe.style.position = 'absolute';
         probe.style.visibility = 'hidden';
-        probe.style.width = '277mm';  // 297mm - 20mm margins
-        probe.style.height = '190mm'; // 210mm - 20mm margins
+        probe.style.width = w.trim();
+        probe.style.height = h.trim();
         document.body.appendChild(probe);
         var rect = probe.getBoundingClientRect();
         probe.remove();
@@ -410,14 +413,14 @@
       }
       function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
       function setScale(scale){
-        var s = clamp(scale || 1, 0.35, 1.05);
+        var s = clamp(scale || 1, 0.4, 1.05);
         document.documentElement.style.setProperty('--fit-scale', s);
         var nodes = getRubricNodes();
         if (nodes.shell) nodes.shell.style.width = 'calc(var(--page-width) / ' + s + ')';
       }
       function setLayout(opts){
         if (opts && typeof opts.minWidth === 'number'){
-          var mw = clamp(opts.minWidth, 90, 240);
+          var mw = clamp(opts.minWidth, 90, 260);
           document.documentElement.style.setProperty('--level-min', mw + 'px');
         }
         if (opts && typeof opts.gap === 'number'){
@@ -439,7 +442,7 @@
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
-          s = clamp(s * 0.95, 0.35, 1);
+          s = clamp(s * 0.95, 0.4, 1);
           setScale(s);
         }catch(e){ /* ignore */ }
       }

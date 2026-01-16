@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.6
+// @version      4.3.7
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -338,13 +338,13 @@
   .cr { color:#444; font-style: italic; }
 
   /* Levels as grid that wraps to fit width */
-  .levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
+  .levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
   .level { border:1px solid #eee; border-radius: 4px; padding: 4px; break-inside: avoid; }
   .tok { font-weight: 800; margin-bottom: 2px; text-align: center; }
   .tok .pts { font-weight: 600; opacity: .85; }
   .ldesc { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
   .sel { background:#eaf5ea; outline:1.4px solid #22a322; outline-offset:-1.4px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; }
+  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; overflow: hidden; }
   .feedback-page { page-break-before: always; break-before: page; }
 
   .blocks { margin-top: 6px; display:grid; grid-template-columns:1fr; gap:6px 16px; }
@@ -406,15 +406,14 @@
         probe.remove();
         return { width: rect.width || 0, height: rect.height || 0 };
       }
-      function syncShell(scale, maxH)
-      {
+      function syncShell(scale, maxH){
         var nodes = getRubricNodes();
         if (!nodes.shell || !nodes.content) return;
         var height = nodes.content.scrollHeight || 0;
         if (scale && scale !== 1) height = Math.ceil(height * scale);
         if (maxH) height = Math.min(height, maxH);
-        nodes.shell.style.height = height + "px";
-        if (maxH) nodes.shell.style.maxHeight = maxH + "px";
+        nodes.shell.style.height = height + 'px';
+        nodes.shell.style.maxHeight = maxH ? (maxH + 'px') : 'none';
       }
       function autoFitToOnePage(){
         try{
@@ -460,6 +459,8 @@
       }
 
             window.addEventListener("resize", function(){ try{ autoFitToOnePage(); }catch(_){ } });
+      window.onbeforeprint = function(){ try{ autoFitToOnePage(); }catch(_){ } };
+      window.onafterprint = function(){ try{ resetFit(); }catch(_){ } };
       setTimeout(function(){ try{window.focus();}catch(e){} }, 50);
     })();
   </script>

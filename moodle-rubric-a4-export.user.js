@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.3
+// @version      4.3.4
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -315,7 +315,7 @@
   :root{ --page-width: 277mm; --page-height: 190mm; }
   @page { size: A4 landscape; margin: 10mm; }
   html, body { background:#fff; }
-  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 8px; line-height: 1.33; margin: 0; }
+  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 9px; line-height: 1.33; margin: 0; }
   h1 { font-size: 14px; margin: 0 0 6px 0; }
   h2 { font-size: 12px; margin: 0 0 6px 0; }
 
@@ -343,7 +343,8 @@
   .tok { font-weight: 800; margin-bottom: 2px; text-align: center; }
   .tok .pts { font-weight: 600; opacity: .85; }
   .ldesc { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
-  .sel { background:#eaf5ea; outline:1.4px solid #22a322; outline-offset:-1.4px; }
+  .sel { background:#eaf5ea; outline:1.4px solid #22a322; outline-offset:-1.4px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   .blocks { margin-top: 6px; display:grid; grid-template-columns:1fr; gap:6px 16px; }
   .block  { border:1px solid #ddd; padding:6px; border-radius:6px; }
@@ -424,8 +425,8 @@
           if (contentHeight <= 0 || contentWidth <= 0) return;
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
-          var s = Math.min(1, scaleH, scaleW);
-          s = Math.min(1, s * 0.85);
+          var s = Math.min(scaleH, scaleW);
+          if (s < 1) s = Math.max(0.5, s * 0.98); else s = 1;
           nodes.content.style.transform = 'scale(' + s + ')';
           syncShell(s);
         }catch(e){ /* ignore */ }
@@ -532,35 +533,31 @@
     const fitToggle = $('#overlayFit');
     const printBtn = $('#overlayPrint');
     const closeInline = () => {
-      try { root.style.display = 'none'; } catch(_){}
+      try { root.style.display = 'none'; } catch(_){ }
       try { if (window.__rtShowPanel) window.__rtShowPanel(); } catch(_){ }
     };
     window.__rtCloseInline = closeInline;
+    const runFit = () => {
+      withFrame((win) => {
+        try{
+          if (fitToggle && !fitToggle.checked && win.__rtResetFit) { win.__rtResetFit(); return; }
+          if (win.__rtAutoFit) win.__rtAutoFit();
+        }catch(_){ }
+      });
+    };
     if (closeBtn) closeBtn.addEventListener('click', closeInline);
-    if (fitToggle) fitToggle.addEventListener('change', () => {
-      withFrame((win) => {
-        try{
-          if (fitToggle.checked && win.__rtAutoFit) win.__rtAutoFit();
-          else if (win.__rtResetFit) win.__rtResetFit();
-        }catch(_){ }
-      });
-    });
+    if (fitToggle) fitToggle.addEventListener('change', () => { runFit(); });
     if (printBtn) printBtn.addEventListener('click', () => {
-      withFrame((win) => {
-        try{
-          if (fitToggle && fitToggle.checked && win.__rtAutoFit) win.__rtAutoFit();
-          else if (win.__rtResetFit) win.__rtResetFit();
-        }catch(_){ }
-        try{ win.focus(); win.print(); }catch(_){ }
-      });
+      runFit();
+      withFrame((win) => { try{ win.focus(); win.print(); }catch(_){ } });
     });
 
     function writeToIframe() {
       const doc = frame.contentDocument || frame.contentWindow?.document;
       if (!doc) return false;
-      doc.open(); doc.write(html); doc.close(); return true;
+      doc.open(); doc.write(html); doc.close(); runFit(); return true;
     }
-    if (!writeToIframe()) frame.addEventListener('load', () => writeToIframe(), { once: true });
+    if (!writeToIframe()) frame.addEventListener('load', () => { if (writeToIframe()) runFit(); }, { once: true });
   }
 
   function printViaIframe(html) {

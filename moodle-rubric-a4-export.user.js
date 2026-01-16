@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.2.1
+// @version      4.3.3
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -312,11 +312,18 @@
 <meta charset="utf-8">
 <title>Rubric – ${student ? student + ' – ' : ''}${assignment || 'Assignment'}</title>
 <style>
-  :root{ --print-scale: 1; }
+  :root{ --page-width: 277mm; --page-height: 190mm; }
   @page { size: A4 landscape; margin: 10mm; }
   html, body { background:#fff; }
-  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 9px; line-height: 1.33; }
+  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 8px; line-height: 1.33; margin: 0; }
   h1 { font-size: 14px; margin: 0 0 6px 0; }
+  h2 { font-size: 12px; margin: 0 0 6px 0; }
+
+  .page { width: var(--page-width); min-height: var(--page-height); margin: 0 auto; overflow: hidden; }
+  .page + .page { break-before: page; page-break-before: always; }
+
+  .rubric-shell { position: relative; width: var(--page-width); }
+  .rubric-content { position: absolute; top: 0; left: 0; width: var(--page-width); transform-origin: top left; }
 
   .meta { margin: 0 0 6px 0; font-size: 9px; color:#333;
           display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 16px; }
@@ -343,16 +350,6 @@
   .block h3 { margin:0 0 4px 0; font-size:10px; border-bottom:1px solid #eee; padding-bottom:3px; }
   .block .content { min-height:48px; white-space: pre-wrap; font-size: 9px; }
 
-  /* Print scaling (optional "Fit to 1 page" button sets --print-scale) */
-  @media print {
-    html.fit body{
-      transform: scale(var(--print-scale));
-      transform-origin: top left;
-      width: calc(100% / var(--print-scale));
-    }
-  }
-
-  /* Screen toolbar */
   @media print { .noprint{ display:none !important; } }
   .toolbar.noprint { position: sticky; top: 0; background:#fff; padding:4px 0; margin-bottom:4px; border-bottom:1px solid #ddd; display:flex; gap:8px; align-items:center; }
   .toolbar button { padding:4px 7px; border:1px solid #ccc; background:#f9f9f9; cursor:pointer; border-radius:6px; font-size:9px; }
@@ -360,61 +357,104 @@
 </style>
 </head>
 <body>
-  <div class="toolbar noprint">
-    <label><input type="checkbox" id="fitToggle" /> Fit to 1 page</label>
-    <button id="printBtn" type="button">Print / Save as PDF</button>
-    <button id="closeBtn" type="button">Close</button>
+  <div class="page rubric-page">
+    <div class="rubric-shell" id="rubricShell">
+      <div class="rubric-content" id="rubricContent">
+        <h1>Rubric Report (Full Breakdown)</h1>
+        <div class="meta">
+          <div><strong>Course:</strong> ${escapeHTML(course || '—')}</div>
+          <div><strong>Assignment:</strong> ${escapeHTML(assignment || '—')}</div>
+          <div><strong>Student:</strong> ${escapeHTML(student || '—')}</div>
+          <div><strong>Generated:</strong> ${escapeHTML(when)}</div>
+          <div><strong>Current grade in gradebook:</strong> ${escapeHTML(currentGradebook || '—')}</div>
+          <div><strong>Overall grade (this grading form):</strong> ${escapeHTML(overall || '—')}</div>
+        </div>
+
+        ${critBlocks}
+      </div>
+    </div>
   </div>
 
-  <h1>Rubric Report (Full Breakdown)</h1>
-  <div class="meta">
-    <div><strong>Course:</strong> ${escapeHTML(course || '—')}</div>
-    <div><strong>Assignment:</strong> ${escapeHTML(assignment || '—')}</div>
-    <div><strong>Student:</strong> ${escapeHTML(student || '—')}</div>
-    <div><strong>Generated:</strong> ${escapeHTML(when)}</div>
-    <div><strong>Current grade in gradebook:</strong> ${escapeHTML(currentGradebook || '—')}</div>
-    <div><strong>Overall grade (this grading form):</strong> ${escapeHTML(overall || '—')}</div>
-  </div>
-
-  ${critBlocks}
-
-  <div class="blocks">
-    <div class="block">
-      <h3>Overall Feedback</h3>
-      <div class="content">${escapeHTML(overallFeedback || '') || ' '}</div>
+  <div class="page feedback-page">
+    <h1>Overall Feedback</h1>
+    <div class="blocks">
+      <div class="block">
+        <div class="content">${escapeHTML(overallFeedback || '') || ' '}</div>
+      </div>
     </div>
   </div>
 
   <script>
-    function autoFitToOnePage(){
-      try{
-        document.documentElement.classList.add('fit');
-        // Reset first
-        document.documentElement.style.setProperty('--print-scale','1');
-        // Measure content vs viewport (approx print area)
-        var contentHeight = document.body.scrollHeight;
-        var pageHeight = window.innerHeight; // iframe/view height approximates printable area
-        if (contentHeight > 0 && pageHeight > 0){
-          var s = pageHeight / contentHeight;
-          // Keep a small margin to avoid spill
-          s = Math.max(0.5, Math.min(1, s * 0.98));
-          document.documentElement.style.setProperty('--print-scale', String(s));
-        }
-      }catch(e){ /* ignore */ }
-    }
-    function resetFit(){
-      try{
-        document.documentElement.style.setProperty('--print-scale','1');
-        document.documentElement.classList.remove('fit');
-      }catch(e){}
-    }
-    document.getElementById('printBtn').addEventListener('click', function(){
-      var fit = document.getElementById('fitToggle').checked;
-      if (fit) autoFitToOnePage(); else resetFit();
-      setTimeout(function(){ window.print(); }, 30);
-    });
-    document.getElementById('closeBtn').addEventListener('click', function(){ window.close(); });
-    setTimeout(function(){ try{window.focus();}catch(e){} }, 50);
+    (function(){
+      function getRubricNodes(){
+        return {
+          shell: document.getElementById('rubricShell'),
+          content: document.getElementById('rubricContent')
+        };
+      }
+      function getPagePx(){
+        // Measure the printable box (A4 landscape minus 10mm margins) in real px
+        var probe = document.createElement('div');
+        probe.style.position = 'absolute';
+        probe.style.visibility = 'hidden';
+        probe.style.width = '277mm';  // 297mm - 20mm margins
+        probe.style.height = '190mm'; // 210mm - 20mm margins
+        document.body.appendChild(probe);
+        var rect = probe.getBoundingClientRect();
+        probe.remove();
+        return { width: rect.width || 0, height: rect.height || 0 };
+      }
+      function syncShell(scale){
+        var nodes = getRubricNodes();
+        if (!nodes.shell || !nodes.content) return;
+        var height = nodes.content.scrollHeight || 0;
+        if (scale && scale !== 1) height = Math.ceil(height * scale);
+        nodes.shell.style.height = height + 'px';
+      }
+      function autoFitToOnePage(){
+        try{
+          var nodes = getRubricNodes();
+          if (!nodes.shell || !nodes.content) return;
+          document.documentElement.classList.add('fit');
+          nodes.content.style.transform = 'scale(1)';
+          syncShell(1);
+          var page = getPagePx();
+          var contentHeight = nodes.content.scrollHeight || 0;
+          var contentWidth = nodes.content.scrollWidth || 0;
+          if (contentHeight <= 0 || contentWidth <= 0) return;
+          var scaleH = page.height / contentHeight;
+          var scaleW = page.width / contentWidth;
+          var s = Math.min(1, scaleH, scaleW);
+          s = Math.min(1, s * 0.85);
+          nodes.content.style.transform = 'scale(' + s + ')';
+          syncShell(s);
+        }catch(e){ /* ignore */ }
+      }
+      function resetFit(){
+        try{
+          var nodes = getRubricNodes();
+          if (!nodes.shell || !nodes.content) return;
+          document.documentElement.classList.remove('fit');
+          nodes.content.style.transform = 'scale(1)';
+          syncShell(1);
+        }catch(e){ /* ignore */ }
+      }
+      window.__rtAutoFit = autoFitToOnePage;
+      window.__rtResetFit = resetFit;
+
+      var fitToggle = document.getElementById('fitToggle');
+      if (fitToggle) fitToggle.checked = true;
+
+      setTimeout(function(){ try{ resetFit(); if (fitToggle && fitToggle.checked) autoFitToOnePage(); }catch(e){} }, 0);
+
+      if (fitToggle) {
+        fitToggle.addEventListener('change', function(){
+          if (fitToggle.checked) autoFitToOnePage(); else resetFit();
+        });
+      }
+
+            setTimeout(function(){ try{window.focus();}catch(e){} }, 50);
+    })();
   </script>
 </body>
 </html>`;
@@ -423,15 +463,11 @@
   /* ------------------- Export helpers (popup + inline + iframe) ------------------- */
   function openReportWindowSyncOrFallback() {
     const html = buildReportHTML();
-    let w = null;
-    try { w = window.open('about:blank', '_blank', 'noopener,noreferrer,width=1200,height=900'); } catch (_) { w = null; }
-    if (w && !w.closed) {
-      try { w.document.open(); w.document.write(html); w.document.close(); try { w.focus(); } catch(_) {} return true; }
-      catch (_) { try { w.close(); } catch(_) {} }
-    }
-    openReportInline(html); return false;
+    openReportInline(html);
+    return true;
   }
   function openReportInline(html) {
+    try { if (window.__rtHidePanel) window.__rtHidePanel(); } catch(_){ }
     let root = document.getElementById('rtInlineExportRoot');
     if (!root) {
       root = document.createElement('div');
@@ -468,20 +504,17 @@
         padding: 8px; border-bottom: 1px solid #e0e0e0;
         background: #fafafa;
       }
-      .bar button, .bar label {
-        padding: 6px 10px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; font: 12px system-ui;
-      }
-      .bar .primary { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+      .bar button { padding: 6px 10px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; font: 12px system-ui; }
+      .bar label { font: 12px system-ui; display:inline-flex; align-items:center; gap:6px; }
       .frame { flex: 1 1 auto; border: 0; width: 100%; }
       @media print { #rtInlineExportRoot { display: none !important; } }
     `;
     wrap.innerHTML = `
       <div class="sheet">
         <div class="bar">
-          <label style="display:inline-flex;align-items:center;gap:6px;"><input id="fitToggle" type="checkbox"/> Fit to 1 page</label>
-          <button id="print" class="primary" type="button">Print / Save as PDF</button>
-          <button id="download" type="button" title="Download HTML file">Download .html</button>
-          <div style="margin-left:auto;font:12px system-ui;color:#555">A4 landscape — grid-fit</div>
+          <label style="display:inline-flex;align-items:center;gap:6px;"><input id="overlayFit" type="checkbox" checked/> Fit to 1 page</label>
+          <button id="overlayPrint" class="primary" type="button">Print / Save as PDF</button>
+          <div style="margin-left:auto;font:12px system-ui;color:#555">A4 landscape — rubric auto-fit</div>
           <button id="close" type="button">Close</button>
         </div>
         <iframe class="frame" id="reportFrame" referrerpolicy="no-referrer"></iframe>
@@ -490,53 +523,46 @@
     shadow.innerHTML = '';
     shadow.append(style, wrap);
 
+
+
     const $ = (sel) => shadow.querySelector(sel);
     const frame = $('#reportFrame');
+    const withFrame = (cb) => { try{ cb(frame.contentWindow, frame.contentDocument || frame.contentWindow.document); }catch(_){ } };
+    const closeBtn = $('#close');
+    const fitToggle = $('#overlayFit');
+    const printBtn = $('#overlayPrint');
+    const closeInline = () => {
+      try { root.style.display = 'none'; } catch(_){}
+      try { if (window.__rtShowPanel) window.__rtShowPanel(); } catch(_){ }
+    };
+    window.__rtCloseInline = closeInline;
+    if (closeBtn) closeBtn.addEventListener('click', closeInline);
+    if (fitToggle) fitToggle.addEventListener('change', () => {
+      withFrame((win) => {
+        try{
+          if (fitToggle.checked && win.__rtAutoFit) win.__rtAutoFit();
+          else if (win.__rtResetFit) win.__rtResetFit();
+        }catch(_){ }
+      });
+    });
+    if (printBtn) printBtn.addEventListener('click', () => {
+      withFrame((win) => {
+        try{
+          if (fitToggle && fitToggle.checked && win.__rtAutoFit) win.__rtAutoFit();
+          else if (win.__rtResetFit) win.__rtResetFit();
+        }catch(_){ }
+        try{ win.focus(); win.print(); }catch(_){ }
+      });
+    });
+
     function writeToIframe() {
       const doc = frame.contentDocument || frame.contentWindow?.document;
       if (!doc) return false;
       doc.open(); doc.write(html); doc.close(); return true;
     }
     if (!writeToIframe()) frame.addEventListener('load', () => writeToIframe(), { once: true });
-
-    function withFrame(cb){ try{ cb(frame.contentWindow, frame.contentDocument || frame.contentWindow.document); }catch(_){ } }
-
-    $('#print').addEventListener('click', () => {
-      const fit = $('#fitToggle').checked;
-      withFrame((win,doc)=>{
-        if (fit) {
-          try{
-            doc.documentElement.classList.add('fit');
-            doc.documentElement.style.setProperty('--print-scale','1');
-            const contentHeight = doc.body.scrollHeight;
-            const pageHeight = win.innerHeight;
-            if (contentHeight>0 && pageHeight>0) {
-              let s = pageHeight / contentHeight; s = Math.max(0.5, Math.min(1, s * 0.98));
-              doc.documentElement.style.setProperty('--print-scale', String(s));
-            }
-          }catch(_){}
-        } else {
-          try{
-            doc.documentElement.style.setProperty('--print-scale','1');
-            doc.documentElement.classList.remove('fit');
-          }catch(_){}
-        }
-        try { win.focus(); win.print(); } catch (_) { printViaIframe(html); }
-      });
-    });
-    $('#download').addEventListener('click', () => {
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const { assignment } = (function(){ try{ return JSON.parse(sessionStorage.__rt_export_cache||'{}'); }catch(_){ return {}; } })();
-      const student = ''; // filename sans student to avoid illegal chars; optional
-      a.href = url;
-      a.download = `Rubric_Report_${(assignment||'Assignment').replace(/\s+/g,'_')}.html`;
-      document.body.appendChild(a); a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
-    });
-    $('#close').addEventListener('click', () => { root.style.display = 'none'; });
   }
+
   function printViaIframe(html) {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed'; iframe.style.right = '0'; iframe.style.bottom = '0';
@@ -582,10 +608,13 @@
           <span class="status">Criteria: <span id="count">…</span></span>
         </div>
         <div id="error" class="error"></div>
-        <div class="hint">Export wraps to fit width; optional “Fit to 1 page” scales print height automatically.</div>
+        <div class="hint">Export wraps to fit width; Fit to 1 page scales rubric to one page; feedback prints on page 2.</div>
       </div>
     `;
     shadow.append(style, wrap);
+
+    window.__rtHidePanel = () => { try{ host.style.display = "none"; }catch(_){ } };
+    window.__rtShowPanel = () => { try{ host.style.display = "block"; }catch(_){ } };
 
     const $=(sel)=>shadow.querySelector(sel);
     const tokensEl=$('#tokens'); const errorEl=$('#error'); const countEl=$('#count');
@@ -614,7 +643,7 @@
       }
       errorEl.textContent = missing.length ? `Could not select for criteria: ${missing.join(', ')}. (Try clicking once in the rubric then Apply again.)` : 'Grades applied ✔';
     });
-    $('#export').addEventListener('click',()=>{ try{ transformTokensOnce(document); }catch(_){} openReportWindowSyncOrFallback(); });
+    $('#export').addEventListener('click',()=>{ try{ transformTokensOnce(document); }catch(_){} try{ if (window.__rtHidePanel) window.__rtHidePanel(); }catch(_){ } openReportWindowSyncOrFallback(); });
 
     const changeSel=document.querySelector('#change-user-select');
     if(changeSel){ changeSel.addEventListener('change',()=>{ setTimeout(()=>{ try{ transformTokensOnce(document); setCount(); }catch(_){} },600); }); }

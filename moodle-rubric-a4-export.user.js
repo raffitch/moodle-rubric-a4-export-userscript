@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.7
+// @version      4.3.8
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -344,8 +344,8 @@
   .tok .pts { font-weight: 600; opacity: .85; }
   .ldesc { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
   .sel { background:#eaf5ea; outline:1.4px solid #22a322; outline-offset:-1.4px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; overflow: hidden; }
-  .feedback-page { page-break-before: always; break-before: page; }
+  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; overflow: hidden; height: var(--page-height); }
+  .feedback-page { page-break-before: always; break-before: page; min-height: var(--page-height); }
 
   .blocks { margin-top: 6px; display:grid; grid-template-columns:1fr; gap:6px 16px; }
   .block  { border:1px solid #ddd; padding:6px; border-radius:6px; }
@@ -429,10 +429,9 @@
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
-          s = Math.min(1, s * 0.96);
-          s = Math.max(0.6, s);
+          s = Math.max(0.55, Math.min(1, s * 0.97));
           nodes.content.style.transform = 'scale(' + s + ')';
-          syncShell(s, page.height);
+          syncShell(s, Math.floor(page.height));
         }catch(e){ /* ignore */ }
       }
       function resetFit(){

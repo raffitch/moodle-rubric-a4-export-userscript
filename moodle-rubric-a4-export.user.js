@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.10
+// @version      4.3.11
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -319,10 +319,10 @@
   h1 { font-size: 14px; margin: 0 0 6px 0; }
   h2 { font-size: 12px; margin: 0 0 6px 0; }
 
-  .page { width: var(--page-width); min-height: var(--page-height); margin: 0 auto; page-break-inside: avoid; }
+  .page { width: var(--page-width); min-height: var(--page-height); height: var(--page-height); margin: 0 auto; page-break-inside: avoid; overflow: hidden; }
   .page + .page { break-before: page; page-break-before: always; }
 
-  .rubric-shell { position: relative; width: 100%; max-width: var(--page-width); }
+  .rubric-shell { position: relative; width: 100%; max-width: var(--page-width); overflow: hidden; }
   .rubric-content { position: absolute; top: 0; left: 0; width: 100%; max-width: var(--page-width); transform-origin: top left; }
 
   .meta { margin: 0 0 6px 0; font-size: 9px; color:#333;
@@ -343,8 +343,9 @@
   .tok { font-weight: 800; margin-bottom: 2px; text-align: center; }
   .tok .pts { font-weight: 600; opacity: .85; }
   .ldesc { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
-  .sel { background:#eaf5ea; outline:1.4px solid #22a322; outline-offset:-1.4px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; }
+  .sel { background:#d8f3d8; outline:1.4px solid #22a322; outline-offset:-1.4px; box-shadow: inset 0 0 0 1px rgba(34,163,34,.35); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @media print { .sel { background:#c8efc8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; overflow: hidden; }
   .feedback-page { page-break-before: always; break-before: page; }
 
   .blocks { margin-top: 6px; display:grid; grid-template-columns:1fr; gap:6px 16px; }
@@ -414,24 +415,25 @@
         if (pageH) height = Math.min(height, pageH);
         nodes.shell.style.height = height + 'px';
         if (pageH) nodes.shell.style.maxHeight = pageH + 'px';
+        nodes.shell.style.overflow = 'hidden';
       }
       function autoFitToOnePage(){
         try{
           var nodes = getRubricNodes();
           if (!nodes.shell || !nodes.content) return;
+          var page = getPagePx();
           document.documentElement.classList.add('fit');
           nodes.content.style.transform = 'scale(1)';
-          syncShell(1);
-          var page = getPagePx();
+          syncShell(1, page.height);
           var contentHeight = nodes.content.scrollHeight || 0;
           var contentWidth = nodes.content.scrollWidth || 0;
           if (contentHeight <= 0 || contentWidth <= 0) return;
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
-          s = Math.max(0.5, Math.min(1, s * 0.97));
+          s = Math.min(1, Math.max(0.4, s * 0.95));
           nodes.content.style.transform = 'scale(' + s + ')';
-          syncShell(s);
+          syncShell(s, page.height);
         }catch(e){ /* ignore */ }
       }
       function resetFit(){
@@ -440,7 +442,7 @@
           if (!nodes.shell || !nodes.content) return;
           document.documentElement.classList.remove('fit');
           nodes.content.style.transform = 'scale(1)';
-          syncShell(1);
+          syncShell(1, getPagePx().height);
         }catch(e){ /* ignore */ }
       }
       window.__rtAutoFit = autoFitToOnePage;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.18
+// @version      4.3.19
 // @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -397,7 +397,7 @@
         };
       }
       function getPagePx(){
-        // Measure the printable box using the configured CSS vars (page width/height)
+        // Measure the printable box using CSS vars, but fall back to viewport to stay accurate in print preview.
         var probe = document.createElement('div');
         var root = getComputedStyle(document.documentElement);
         var w = root.getPropertyValue('--page-width') || '277mm';
@@ -409,23 +409,29 @@
         document.body.appendChild(probe);
         var rect = probe.getBoundingClientRect();
         probe.remove();
-        return { width: rect.width || 0, height: rect.height || 0 };
+        var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+        return { width: Math.max(rect.width || 0, vw), height: Math.max(rect.height || 0, vh) };
       }
       function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
+      var fitBoost = 0.98;
       function setScale(scale){
-        var s = clamp(scale || 1, 0.4, 1.05);
+        var s = clamp(scale || 1, 0.6, 1.05);
         document.documentElement.style.setProperty('--fit-scale', s);
         var nodes = getRubricNodes();
         if (nodes.shell) nodes.shell.style.width = 'calc(var(--page-width) / ' + s + ')';
       }
       function setLayout(opts){
         if (opts && typeof opts.minWidth === 'number'){
-          var mw = clamp(opts.minWidth, 90, 260);
+          var mw = clamp(opts.minWidth, 90, 280);
           document.documentElement.style.setProperty('--level-min', mw + 'px');
         }
         if (opts && typeof opts.gap === 'number'){
           var g = clamp(opts.gap, 2, 14);
           document.documentElement.style.setProperty('--level-gap', g + 'px');
+        }
+        if (opts && typeof opts.boost === 'number'){
+          fitBoost = clamp(opts.boost, 0.8, 1.1);
         }
         autoFitToOnePage();
       }
@@ -442,7 +448,7 @@
           var scaleH = page.height / contentHeight;
           var scaleW = page.width / contentWidth;
           var s = Math.min(scaleH, scaleW);
-          s = clamp(s * 0.95, 0.4, 1);
+          s = clamp(s * fitBoost, 0.6, 1);
           setScale(s);
         }catch(e){ /* ignore */ }
       }

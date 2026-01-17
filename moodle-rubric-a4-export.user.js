@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.3.19
-// @description  A4 export fits width via grid and can auto-scale to ONE page height before print; shows points, highlights selected, per-criterion remarks, Overall Feedback (HTML stripped), reads Current grade from gradebook link. Removes "Due date ..." and any time stamps near the student name. Includes quota shield.
+// @version      4.4.0
+// @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
 // @homepageURL  https://github.com/raffitch/moodle-rubric-a4-export-userscript
@@ -265,222 +265,601 @@
     let overall=''; const gp=document.querySelector('[data-region="grade"]') || document;
     const overallEl = gp.querySelector('input[type="text"][name*="grade"], input[name$="[grade]"], input[type="number"][name*="grade"], .gradevalue, .grade');
     if (overallEl) overall = (overallEl.value || overallEl.textContent || '').trim();
-    if (!overall && maxPoints>0) overall = `${totalPoints.toFixed(2)} / ${maxPoints.toFixed(2)} pts`;
+
+    const selectedSum = maxPoints>0 ? `${totalPoints.toFixed(2)} / ${maxPoints.toFixed(2)} pts` : '';
+    if (!overall && selectedSum) overall = selectedSum;
 
     const overallFeedback=getOverallFeedback();
     const currentGradebook=getCurrentGradeInGradebook();
 
-    return { items, overall, overallFeedback, currentGradebook };
+    return { items, overall, selectedSum, totalPoints, maxPoints, overallFeedback, currentGradebook };
   }
 
   /* ------------------- Build A4 (Landscape) HTML using GRID and One-Page Scaling ------------------- */
   const escapeHTML=(s)=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  function buildReportHTML(){
+    function buildReportHTML(){
     const { course, assignment }=getCourseAndAssignment();
     let student = getStudentName();
-    student = sanitizeName(student); // removes due date + time + emails
+    student = sanitizeName(student);
 
     const when=getDateStr();
-    const { items, overall, overallFeedback, currentGradebook } = collectRubricData();
+    const { items, selectedSum, overallFeedback, currentGradebook } = collectRubricData();
 
     const critBlocks = items.map(it=>{
       const levels = it.levels.map(l=>{
-        const pts = l.points ? ` <span class="pts">(${l.points} pts)</span>` : '';
+        const ptsText = l.points !== '' ? String(l.points) : '';
+        const pts = ptsText ? ` <span class="pts">(${escapeHTML(ptsText)} pts)</span>` : '';
+        const tok = escapeHTML(l.token || '—');
+        const desc = escapeHTML(l.description || '') || '—';
         return `
-          <div class="level ${l.selected?'sel':''}">
-            <div class="tok">${l.token || '—'}${pts}</div>
-            <div class="ldesc">${escapeHTML(l.description || '') || '—'}</div>
-          </div>`;
+              <div class="level ${l.selected?'sel':''}">
+                <div class="tok">${tok}${pts}</div>
+                <div class="ldesc">${desc}</div>
+              </div>`;
       }).join('');
       return `
-        <div class="criterion">
-          <div class="cmeta">
-            <div class="cidx">${it.index}</div>
-            <div class="ctitle">
-              <div class="ct">${escapeHTML(it.title)}</div>
-              ${it.remark ? `<div class="cr">Remark: ${escapeHTML(it.remark)}</div>` : ''}
+          <div class="criterion">
+            <div class="cmeta">
+              <div class="cidx">${it.index}</div>
+              <div class="ctitle">
+                <div class="ct">${escapeHTML(it.title)}</div>
+              </div>
             </div>
-          </div>
-          <div class="levels">${levels}</div>
-        </div>`;
-    }).join('');
+            <div class="levels">
+${levels}
+            </div>
+          </div>`;
+    }).join('\n');
+
+    const feedbackBlock = overallFeedback ? escapeHTML(overallFeedback) : '';
+    const gradebookText = escapeHTML(currentGradebook || '—');
+    const selectedText = escapeHTML(selectedSum || '—');
+    const courseText = escapeHTML(course || '—');
+    const assignmentText = escapeHTML(assignment || '—');
+    const studentText = escapeHTML(student || '—');
+    const whenText = escapeHTML(when);
 
     return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Rubric – ${student ? student + ' – ' : ''}${assignment || 'Assignment'}</title>
-<style>
-  /* Design against a wide page; choose portrait/landscape in print dialog */
-  :root{ --page-width: 277mm; --page-height: 190mm; --fit-scale: 1; --level-min: 130px; --level-gap: 6px; }
-  @page { size: A4; margin: 10mm; }
-  html, body { background:#fff; }
-  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; font-size: 9px; line-height: 1.33; margin: 0; }
-  h1 { font-size: 14px; margin: 0 0 6px 0; }
-  h2 { font-size: 12px; margin: 0 0 6px 0; }
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rubric Export Preview${studentText ? ' — ' + studentText : ''}</title>
+  <style>
+    :root {
+      --page-width: 297mm;
+      --page-height: 210mm;
+      --fit-scale: 1;
+      --level-min: 110px;
+      --level-gap: 5px;
+      --rubric-fs: 6px;
+    }
 
-  .page { width: var(--page-width); min-height: var(--page-height); height: var(--page-height); margin: 0 auto; page-break-inside: avoid; overflow: hidden; display: flex; align-items: flex-start; }
-  .page + .page { break-before: page; page-break-before: always; }
+    @page {
+      size: auto;
+      margin: 0mm;
+    }
 
-  .rubric-shell { position: relative; width: calc(var(--page-width) / var(--fit-scale)); max-width: none; transform: scale(var(--fit-scale)); transform-origin: top left; }
-  .rubric-content { position: relative; width: 100%; max-width: none; }
+    html,
+    body {
+      background: #f3f4f6;
+    }
 
-  .meta { margin: 0 0 6px 0; font-size: 9px; color:#333;
-          display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 16px; }
-  .meta div { margin:1px 0; } .meta strong { font-weight:700; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: #111;
+      font-size: 12px;
+      line-height: 1.35;
+    }
 
-  /* Criterion block layout (no wide table) */
-  .criterion { border-top: 1px solid #e6e6e6; padding: 5px 0 4px 0; }
-  .criterion:first-of-type { border-top: 0; }
-  .cmeta { display:grid; grid-template-columns: 28px 1fr; gap: 8px; margin-bottom: 4px; }
-  .cidx { font-weight: 700; }
-  .ct { font-weight: 700; margin-bottom: 2px; }
-  .cr { color:#444; font-style: italic; }
+    .appbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: rgba(255, 255, 255, .9);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid #e5e7eb;
+      padding: 10px 14px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
 
-  /* Levels as grid that wraps to fit width */
-  .levels { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(var(--level-min), 1fr)); grid-auto-flow: row dense; gap: var(--level-gap); align-items: stretch; }
-  .level { border:1px solid #eee; border-radius: 4px; padding: 4px; break-inside: avoid; }
-  .tok { font-weight: 800; margin-bottom: 2px; text-align: center; }
-  .tok .pts { font-weight: 600; opacity: .85; }
-  .ldesc { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
-  .sel { background:#d8f3d8; outline:1.4px solid #22a322; outline-offset:-1.4px; box-shadow: inset 0 0 0 1px rgba(34,163,34,.35); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  @media print { .sel { background:#c8efc8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-  .rubric-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-after: always; overflow: hidden; }
-  .feedback-page { page-break-before: always; break-before: page; }
+    .appbar .title {
+      font-weight: 800;
+    }
 
-  .blocks { margin-top: 6px; display:grid; grid-template-columns:1fr; gap:6px 16px; }
-  .block  { border:1px solid #ddd; padding:6px; border-radius:6px; }
-  .block h3 { margin:0 0 4px 0; font-size:10px; border-bottom:1px solid #eee; padding-bottom:3px; }
-  .block .content { min-height:48px; white-space: pre-wrap; font-size: 9px; }
+    .appbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #111;
+    }
 
-  @media print { .noprint{ display:none !important; } }
-  .toolbar.noprint { position: sticky; top: 0; background:#fff; padding:4px 0; margin-bottom:4px; border-bottom:1px solid #ddd; display:flex; gap:8px; align-items:center; }
-  .toolbar button { padding:4px 7px; border:1px solid #ccc; background:#f9f9f9; cursor:pointer; border-radius:6px; font-size:9px; }
-  .toolbar label { font-size: 9px; display:inline-flex; align-items:center; gap:4px; }
-</style>
+    .appbar button {
+      padding: 7px 10px;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .appbar .pill {
+      margin-left: auto;
+      font-size: 12px;
+      color: #374151;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 999px;
+      padding: 6px 10px;
+    }
+
+    .appbar input[type="range"] {
+      width: 160px;
+    }
+
+    .stage {
+      padding: 18px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .page {
+      width: var(--page-width);
+      min-height: var(--page-height);
+      height: var(--page-height);
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, .12);
+      border: 1px solid rgba(0, 0, 0, .07);
+      overflow: hidden;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+    }
+
+    .rubric-shell {
+      width: var(--page-width);
+      transform: scale(var(--fit-scale));
+      transform-origin: top left;
+    }
+
+    .rubric-content {
+      padding: 12px;
+    }
+
+    h1 {
+      font-size: 16px;
+      margin: 0 0 8px 0;
+    }
+
+    h2 {
+      font-size: 13px;
+      margin: 14px 0 8px 0;
+    }
+
+    .meta {
+      margin: 0 0 10px 0;
+      font-size: 11px;
+      color: #374151;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 2px 16px;
+    }
+
+    .meta strong {
+      font-weight: 750;
+      color: #111;
+    }
+
+    .criterion {
+      border-top: 1px solid #e5e7eb;
+      padding: 8px 0 7px 0;
+    }
+
+    .criterion:first-of-type {
+      border-top: 0;
+    }
+
+    .cmeta {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .cidx {
+      font-weight: 900;
+      color: #111;
+    }
+
+    .ct {
+      font-weight: 900;
+    }
+
+    .levels {
+      display: grid;
+      width: 100%;
+      grid-template-columns: repeat(auto-fit, minmax(var(--level-min), 1fr));
+      grid-auto-flow: row dense;
+      gap: var(--level-gap);
+      align-items: stretch;
+    }
+
+    .level {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 7px;
+      break-inside: avoid;
+      background: #fff;
+    }
+
+    .tok {
+      font-weight: 950;
+      margin-bottom: 4px;
+      text-align: center;
+      font-size: calc(var(--rubric-fs) + 1px);
+    }
+
+    .pts {
+      font-weight: 700;
+      opacity: .9;
+      font-size: var(--rubric-fs);
+    }
+
+    .ldesc {
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      color: #111;
+      font-size: var(--rubric-fs);
+      line-height: 1.25;
+    }
+
+    .sel {
+      background: #d8f3d8;
+      outline: 1.6px solid #16a34a;
+      outline-offset: -1.6px;
+      box-shadow: inset 0 0 0 1px rgba(22, 163, 74, .35);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body.mode-selected .level:not(.sel) {
+      display: none !important;
+    }
+
+    body.mode-selected .levels {
+      grid-template-columns: 1fr !important;
+    }
+
+    body.mode-selected .tok {
+      text-align: left;
+    }
+
+    body.mode-full .level:not(.sel) {
+      padding: 6px;
+      font-size: 10.5px;
+    }
+
+    body.mode-full .level:not(.sel) .tok {
+      font-size: 11px;
+    }
+
+    body.mode-full .level:not(.sel) .ldesc {
+      line-height: 1.25;
+    }
+
+    .feedback {
+      margin-top: 20px;
+      page-break-before: always;
+      break-before: page;
+    }
+
+    .fbox {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 10px;
+      white-space: pre-wrap;
+      color: #111;
+      background: #fff;
+    }
+
+    body.fit-active .levels {
+      display: grid !important;
+      grid-template-columns: repeat(6, 1fr) !important;
+      gap: 4px !important;
+    }
+
+    body.fit-active .level {
+      min-width: 0;
+      padding: 5px;
+      border-radius: 6px;
+    }
+
+    body.fit-active .level .tok {
+      font-size: calc(var(--rubric-fs) + 1px);
+      margin-bottom: 2px;
+    }
+
+    body.fit-active .level .ldesc {
+      font-size: var(--rubric-fs);
+      line-height: 1.25;
+    }
+
+    body.fit-active .level .pts {
+      font-size: var(--rubric-fs);
+    }
+
+    @media print {
+
+      html,
+      body {
+        background: #fff;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        overflow: visible !important;
+      }
+
+      .appbar,
+      .stage {
+        display: none !important;
+      }
+
+      .printwrap {
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        transform: none !important;
+      }
+
+      .printwrap .page {
+        box-shadow: none !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: none !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: auto !important;
+        transform: none !important;
+      }
+
+      .rubric-shell {
+        transform: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+      }
+
+      .levels {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important;
+        gap: 5px !important;
+      }
+    }
+
+    .printwrap {
+      display: none;
+    }
+  </style>
 </head>
-<body>
-  <div class="page rubric-page">
-    <div class="rubric-shell" id="rubricShell">
-      <div class="rubric-content" id="rubricContent">
-        <h1>Rubric Report (Full Breakdown)</h1>
-        <div class="meta">
-          <div><strong>Course:</strong> ${escapeHTML(course || '—')}</div>
-          <div><strong>Assignment:</strong> ${escapeHTML(assignment || '—')}</div>
-          <div><strong>Student:</strong> ${escapeHTML(student || '—')}</div>
-          <div><strong>Generated:</strong> ${escapeHTML(when)}</div>
-          <div><strong>Current grade in gradebook:</strong> ${escapeHTML(currentGradebook || '—')}</div>
-          <div><strong>Overall grade (this grading form):</strong> ${escapeHTML(overall || '—')}</div>
-        </div>
 
-        ${critBlocks}
+<body class="mode-full">
+  <div class="appbar">
+    <div class="title">Rubric Export Preview</div>
+    <label><input id="toggleMode" type="checkbox" checked /> Show all levels</label>
+    <label><input id="toggleFit" type="checkbox" checked /> Fit to A4</label>
+    <label>
+      <select id="selOrientation">
+        <option value="landscape" selected>A4 Landscape</option>
+        <option value="portrait">A4 Portrait</option>
+      </select>
+    </label>
+    <label>Font Size
+      <input id="fontSizeRange" type="range" min="4" max="14" value="6" step="0.5" style="width:100px" />
+      <span id="fontSizeVal">6px</span>
+    </label>
+    <button id="btnPrint" type="button">Print / Save PDF</button>
+  </div>
+
+  <div class="stage">
+    <div class="page">
+      <div class="rubric-shell" id="rubricShell">
+        <div class="rubric-content" id="rubricContent">
+          <div class="meta">
+            <div><strong>Course:</strong> ${courseText}</div>
+            <div><strong>Assignment:</strong> ${assignmentText}</div>
+            <div><strong>Student:</strong> ${studentText}</div>
+            <div><strong>Generated:</strong> ${whenText}</div>
+            <div><strong>Current grade in gradebook:</strong> ${gradebookText}</div>
+            <div><strong>Overall grade (selected sum):</strong> ${selectedText}</div>
+          </div>
+
+          ${critBlocks}
+
+          <div class="feedback">
+            <h2>Overall Feedback</h2>
+            <div class="fbox">${feedbackBlock || ' '}</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="page feedback-page">
-    <h1>Overall Feedback</h1>
-    <div class="blocks">
-      <div class="block">
-        <div class="content">${escapeHTML(overallFeedback || '') || ' '}</div>
+  <div class="printwrap">
+    <div class="page">
+      <div class="rubric-shell" id="printRubricShell">
+        <div class="rubric-content" id="printRubricContent"></div>
       </div>
     </div>
   </div>
 
   <script>
-    (function(){
-      function getRubricNodes(){
-        return {
-          shell: document.getElementById('rubricShell'),
-          content: document.getElementById('rubricContent')
-        };
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      const toggleFit = $('toggleFit');
+      const toggleMode = $('toggleMode');
+      const selOrientation = $('selOrientation');
+      const btnPrint = $('btnPrint');
+
+      const fontSizeRange = $('fontSizeRange');
+      const fontSizeVal = $('fontSizeVal');
+
+      const A4_W = 297;
+      const A4_H = 210;
+
+      function syncPrintDOM() {
+        const src = $('rubricContent');
+        const dst = $('printRubricContent');
+        if (!src || !dst) return;
+        dst.innerHTML = src.innerHTML;
       }
-      function getPagePx(){
-        // Measure the printable box using CSS vars, but fall back to viewport to stay accurate in print preview.
-        var probe = document.createElement('div');
-        var root = getComputedStyle(document.documentElement);
-        var w = root.getPropertyValue('--page-width') || '277mm';
-        var h = root.getPropertyValue('--page-height') || '190mm';
-        probe.style.position = 'absolute';
-        probe.style.visibility = 'hidden';
-        probe.style.width = w.trim();
-        probe.style.height = h.trim();
-        document.body.appendChild(probe);
-        var rect = probe.getBoundingClientRect();
-        probe.remove();
-        var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-        var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
-        return { width: Math.max(rect.width || 0, vw), height: Math.max(rect.height || 0, vh) };
-      }
-      function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
-      var fitBoost = 0.98;
-      function setScale(scale){
-        var s = clamp(scale || 1, 0.6, 1.05);
+
+      function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+      function setScale(scale) {
+        const s = Math.max(scale || 1, 0.5);
         document.documentElement.style.setProperty('--fit-scale', s);
-        var nodes = getRubricNodes();
-        if (nodes.shell) nodes.shell.style.width = 'calc(var(--page-width) / ' + s + ')';
       }
-      function setLayout(opts){
-        if (opts && typeof opts.minWidth === 'number'){
-          var mw = clamp(opts.minWidth, 90, 280);
+
+      const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
+
+      async function fitStable() {
+        if (toggleFit) {
+          document.body.classList.toggle('fit-active', toggleFit.checked);
+        }
+
+        if (!toggleFit || !toggleFit.checked) {
+          setScale(1);
+          return;
+        }
+
+        try {
+          const content = $('rubricContent');
+          if (!content) return;
+
+          setScale(1);
+
+          await nextFrame();
+          await nextFrame();
+
+          const contentW = content.scrollWidth;
+          if (!contentW) { setScale(1); return; }
+
+          const root = getComputedStyle(document.documentElement);
+          const pageW_mm = parseFloat(root.getPropertyValue('--page-width')) || A4_W;
+
+          const PPCM = 3.7795;
+          const availW = pageW_mm * PPCM;
+
+          const safeW = availW - 40;
+
+          let s = safeW / contentW;
+
+          if (s > 1) s = 1;
+
+          setScale(s);
+        } catch (e) { console.error(e); }
+      }
+
+      function updateOrientation() {
+        const val = selOrientation ? selOrientation.value : 'landscape';
+        const isLand = val === 'landscape';
+
+        const w = isLand ? A4_W : A4_H;
+        const h = isLand ? A4_H : A4_W;
+
+        document.documentElement.style.setProperty('--page-width', w + 'mm');
+        document.documentElement.style.setProperty('--page-height', h + 'mm');
+
+        const styleId = 'page-orientation-style';
+        let styleEl = document.getElementById(styleId);
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = styleId;
+          document.head.appendChild(styleEl);
+        }
+        styleEl.innerHTML = '@page { size: A4 ' + val + '; margin: 0; }';
+
+        fitStable();
+      }
+
+      function setLayout(opts) {
+        if (opts && typeof opts.minWidth === 'number') {
+          const mw = clamp(opts.minWidth, 90, 320);
           document.documentElement.style.setProperty('--level-min', mw + 'px');
         }
-        if (opts && typeof opts.gap === 'number'){
-          var g = clamp(opts.gap, 2, 14);
-          document.documentElement.style.setProperty('--level-gap', g + 'px');
-        }
-        if (opts && typeof opts.boost === 'number'){
-          fitBoost = clamp(opts.boost, 0.8, 1.1);
-        }
-        autoFitToOnePage();
       }
-      function autoFitToOnePage(){
-        try{
-          var nodes = getRubricNodes();
-          if (!nodes.shell) return;
-          var page = getPagePx();
-          setScale(1);
-          nodes.shell.style.width = 'var(--page-width)';
-          var contentHeight = nodes.shell.scrollHeight || nodes.shell.getBoundingClientRect().height || 0;
-          var contentWidth = nodes.shell.scrollWidth || nodes.shell.getBoundingClientRect().width || 0;
-          if (contentHeight <= 0 || contentWidth <= 0) return;
-          var scaleH = page.height / contentHeight;
-          var scaleW = page.width / contentWidth;
-          var s = Math.min(scaleH, scaleW);
-          s = clamp(s * fitBoost, 0.6, 1);
-          setScale(s);
-        }catch(e){ /* ignore */ }
+
+      function setMode(mode) {
+        document.body.classList.toggle('mode-selected', mode === 'selected');
+        document.body.classList.toggle('mode-full', mode === 'full');
       }
-      function resetFit(){
-        try{
-          setScale(1);
-          var nodes = getRubricNodes();
-          if (nodes.shell) nodes.shell.style.width = 'var(--page-width)';
-        }catch(e){ /* ignore */ }
-      }
-      window.__rtAutoFit = autoFitToOnePage;
-      window.__rtResetFit = resetFit;
-      window.__rtSetLayout = setLayout;
 
-      var fitToggle = document.getElementById('fitToggle');
-      if (fitToggle) fitToggle.checked = true;
-
-      setTimeout(function(){ try{ resetFit(); if (fitToggle && fitToggle.checked) autoFitToOnePage(); }catch(e){} }, 0);
-
-      if (fitToggle) {
-        fitToggle.addEventListener('change', function(){
-          if (fitToggle.checked) autoFitToOnePage(); else resetFit();
+      if (toggleMode) {
+        toggleMode.addEventListener('change', async () => {
+          setMode(toggleMode.checked ? 'full' : 'selected');
+          await fitStable();
         });
       }
 
-            window.addEventListener("resize", function(){ try{ autoFitToOnePage(); }catch(_){ } });
-      window.onbeforeprint = function(){ try{ autoFitToOnePage(); }catch(_){ } };
-      window.onafterprint = function(){ try{ resetFit(); }catch(_){ } };
-      setTimeout(function(){ try{window.focus();}catch(e){} }, 50);
+      if (toggleFit) {
+        toggleFit.addEventListener('change', async () => {
+          await fitStable();
+        });
+      }
+
+      if (selOrientation) {
+        selOrientation.addEventListener('change', () => {
+          updateOrientation();
+        });
+      }
+
+      if (fontSizeRange) {
+        const updateFS = () => {
+          const val = fontSizeRange.value;
+          document.documentElement.style.setProperty('--rubric-fs', val + 'px');
+          if (fontSizeVal) fontSizeVal.textContent = val + 'px';
+          fitStable();
+        };
+        fontSizeRange.addEventListener('input', updateFS);
+        updateFS();
+      }
+
+      if (btnPrint) {
+        btnPrint.addEventListener('click', async () => {
+          syncPrintDOM();
+          await fitStable();
+          window.print();
+        });
+      }
+
+      window.addEventListener('beforeprint', async () => {
+        syncPrintDOM();
+        await fitStable();
+      });
+
+      (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
+        .then(() => {
+          updateOrientation();
+        });
+
+      setMode('full');
     })();
   </script>
 </body>
+
 </html>`;
   }
 
@@ -502,103 +881,49 @@
       root.style.background = 'rgba(0,0,0,.35)';
       root.style.backdropFilter = 'blur(1px)';
       document.body.appendChild(root);
-    } else {
-      root.innerHTML = '';
-      root.style.display = 'block';
     }
+    root.style.display = 'block';
 
     const shadow = root.shadowRoot || root.attachShadow({ mode: 'open' });
-    const wrap = document.createElement('div');
     const style = document.createElement('style');
     style.textContent = `
       :host { all: initial; }
-      .sheet {
-        box-sizing: border-box;
-        background: #fff; color: #111;
-        width: min(1400px, 95vw);
-        height: min(95vh, 95vh);
-        margin: 2.5vh auto;
-        border-radius: 10px;
-        box-shadow: 0 16px 60px rgba(0,0,0,.35);
-        overflow: hidden; display: flex; flex-direction: column;
-        border: 1px solid rgba(0,0,0,.15);
-      }
-      .bar {
-        display: flex; gap: 8px; align-items: center;
-        padding: 8px; border-bottom: 1px solid #e0e0e0;
-        background: #fafafa;
-      }
-      .bar button { padding: 6px 10px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; font: 12px system-ui; }
-      .bar label { font: 12px system-ui; display:inline-flex; align-items:center; gap:6px; }
-      .bar .slider input[type="range"]{ width:140px; }
-      .frame { flex: 1 1 auto; border: 0; width: 100%; }
-      @media print { #rtInlineExportRoot { display: none !important; } }
+      .backdrop { position: fixed; inset: 0; padding: 18px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+      .framewrap { position: relative; background: #fff; color: #111; width: min(1400px, 96vw); height: min(95vh, 95vh); border-radius: 14px; box-shadow: 0 18px 60px rgba(0,0,0,.35); overflow: hidden; border: 1px solid rgba(0,0,0,.12); display: flex; }
+      iframe { border: 0; width: 100%; height: 100%; }
+      .close { position: absolute; top: 10px; right: 10px; z-index: 2; background: rgba(0,0,0,.65); color: #fff; border: 0; border-radius: 999px; width: 34px; height: 34px; cursor: pointer; font-size: 18px; font-weight: 700; line-height: 1; display: grid; place-items: center; }
+      @media print { :host { display: none !important; } }
     `;
+    const wrap = document.createElement('div');
+    wrap.className = 'backdrop';
     wrap.innerHTML = `
-      <div class="sheet">
-        <div class="bar">
-          <label style="display:inline-flex;align-items:center;gap:6px;"><input id="overlayFit" type="checkbox" checked/> Fit to 1 page</label>
-          <label class="slider">Min col width <input id="overlayMin" type="range" min="110" max="220" value="130" step="5"/><span id="overlayMinVal">130px</span></label>
-          <button id="overlayPrint" class="primary" type="button">Print / Save as PDF</button>
-          <div style="margin-left:auto;font:12px system-ui;color:#555">A4 landscape — rubric auto-fit</div>
-          <button id="close" type="button">Close</button>
-        </div>
+      <div class="framewrap">
+        <button class="close" type="button" aria-label="Close preview">×</button>
         <iframe class="frame" id="reportFrame" referrerpolicy="no-referrer"></iframe>
       </div>
     `;
     shadow.innerHTML = '';
     shadow.append(style, wrap);
 
-
-
-    const $ = (sel) => shadow.querySelector(sel);
-    const frame = $('#reportFrame');
-    const withFrame = (cb) => { try{ cb(frame.contentWindow, frame.contentDocument || frame.contentWindow.document); }catch(_){ } };
-    const closeBtn = $('#close');
-    const fitToggle = $('#overlayFit');
-    const printBtn = $('#overlayPrint');
-    const minRange = $('#overlayMin');
-    const minVal = $('#overlayMinVal');
+    const frame = shadow.querySelector('#reportFrame');
+    const closeBtn = shadow.querySelector('.close');
     const closeInline = () => {
       try { root.style.display = 'none'; } catch(_){ }
       try { if (window.__rtShowPanel) window.__rtShowPanel(); } catch(_){ }
     };
     window.__rtCloseInline = closeInline;
-    const runFit = () => {
-      withFrame((win) => {
-        try{
-          if (fitToggle && !fitToggle.checked && win.__rtResetFit) { win.__rtResetFit(); return; }
-          if (win.__rtAutoFit) win.__rtAutoFit();
-        }catch(_){ }
-      });
-    };
-    const applyLayout = () => {
-      const mw = parseInt(minRange?.value || '130', 10);
-      if (minVal) minVal.textContent = (isFinite(mw) ? mw : 130) + 'px';
-      withFrame((win) => {
-        try{
-          if (win.__rtSetLayout) { win.__rtSetLayout({ minWidth: mw }); return; }
-          if (win.__rtAutoFit) win.__rtAutoFit();
-        }catch(_){ }
-      });
-    };
+
     if (closeBtn) closeBtn.addEventListener('click', closeInline);
-    if (fitToggle) fitToggle.addEventListener('change', () => { runFit(); });
-    if (minRange) minRange.addEventListener('input', () => { applyLayout(); });
-    if (printBtn) printBtn.addEventListener('click', () => {
-      applyLayout();
-      runFit();
-      withFrame((win) => { try{ win.focus(); win.print(); }catch(_){ } });
-    });
+    shadow.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeInline(); });
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) closeInline(); });
 
     function writeToIframe() {
-      const doc = frame.contentDocument || frame.contentWindow?.document;
+      const doc = frame?.contentDocument || frame?.contentWindow?.document;
       if (!doc) return false;
       doc.open(); doc.write(html); doc.close();
-      setTimeout(() => { applyLayout(); runFit(); }, 30);
       return true;
     }
-    if (!writeToIframe()) frame.addEventListener('load', () => { if (writeToIframe()) { setTimeout(() => { applyLayout(); runFit(); }, 30); } }, { once: true });
+    if (!writeToIframe()) frame?.addEventListener('load', () => { writeToIframe(); }, { once: true });
   }
 
   function printViaIframe(html) {
@@ -642,11 +967,11 @@
           <button id="apply" class="btn primary" type="button">Apply</button>
           <button id="clear" class="btn"  type="button">Clear</button>
           <button id="rescan" class="btn" type="button" title="Re-scan rubric">Rescan</button>
-          <button id="export" class="btn accent" type="button" title="Export A4 (grid-fit + one-page)">Export A4</button>
+          <button id="export" class="btn accent" type="button" title="Open A4 preview with fit/orientation controls">Export A4</button>
           <span class="status">Criteria: <span id="count">…</span></span>
         </div>
         <div id="error" class="error"></div>
-        <div class="hint">Export wraps to fit width; Fit to 1 page scales rubric to one page; feedback prints on page 2.</div>
+        <div class="hint">Preview has Show all levels, Fit to A4, orientation, and font size controls before printing.</div>
       </div>
     `;
     shadow.append(style, wrap);

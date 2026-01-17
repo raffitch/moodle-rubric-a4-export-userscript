@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.2
+// @version      4.4.3
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -147,27 +147,24 @@
   /* ------------------- Metadata & scraping ------------------- */
   const stripTimeAnywhere = (s) => String(s||'').replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)?\b/ig,'').replace(/\s{2,}/g,' ').trim();
   const stripDueDateAnywhere = (s) => String(s||'')
-    .replace(/\bDue\s*date\\s*:\\s*[^|,\n]+/ig,'')
-    .replace(/\bDue\\s*:\\s*[^|,\n]+/ig,'')
+    .replace(/\bDue\s*date\s*:\s*[^|\n\r]+/ig,'')
+    .replace(/\bDue\s*:\s*[^|\n\r]+/ig,'')
     .replace(/\s{2,}/g,' ')
     .trim();
 
   function sanitizeName(s){
-    return stripTimeAnywhere(
-      stripDueDateAnywhere(
-        String(s||'')
-          .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/ig,'')
-          .replace(/^\s*[:\-–—]\s*/,'')
-          .replace(/\s+/g,' ')
-          .trim()
-      )
-    );
+    const base=String(s||'')
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/ig,'')
+      .replace(/^\s*[:\-–—]\s*/,'')
+      .replace(/\s+/g,' ')
+      .trim();
+    return stripTimeAnywhere(stripDueDateAnywhere(base));
   }
 
   function getCourseAndAssignment(){
     const nav=document.querySelector('[data-region="grading-navigation"]');
     const info=nav? nav.querySelector('[data-region="assignment-info"]') : null;
-    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\\s*:\s*','i'),'').trim();
+    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\s*:\s*','i'),'').trim();
     let course='', assignment='';
 
     if(info){
@@ -695,7 +692,7 @@ ${levels}
             <div><strong>Assignment:</strong> ${assignmentText}</div>
             <div><strong>Student:</strong> ${studentText}</div>
             <div><strong>Current grade in gradebook:</strong> ${gradebookText}</div>
-            <div><strong>Overall grade (selected sum):</strong> ${selectedText}</div>
+            <div><strong>Assignment grade (selected sum):</strong> ${selectedText}</div>
           </div>
 
           ${critBlocks}

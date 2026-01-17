@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.0
+// @version      4.4.1
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -147,8 +147,8 @@
   /* ------------------- Metadata & scraping ------------------- */
   const stripTimeAnywhere = (s) => String(s||'').replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)?\b/ig,'').replace(/\s{2,}/g,' ').trim();
   const stripDueDateAnywhere = (s) => String(s||'')
-    .replace(/\bDue\s*date\s*:\s*[^|,\n]+/ig,'')
-    .replace(/\bDue\s*:\s*[^|,\n]+/ig,'')
+    .replace(/\bDue\s*date\\s*:\\s*[^|,\n]+/ig,'')
+    .replace(/\bDue\\s*:\\s*[^|,\n]+/ig,'')
     .replace(/\s{2,}/g,' ')
     .trim();
 
@@ -165,14 +165,30 @@
   }
 
   function getCourseAndAssignment(){
-    const info=document.querySelector('[data-region="grading-navigation"] [data-region="assignment-info"]') || document;
-    const links=info.querySelectorAll('a[href*="/course/view.php"], a[href*="/mod/assign/view.php"]');
+    const nav=document.querySelector('[data-region="grading-navigation"]');
+    const info=nav? nav.querySelector('[data-region="assignment-info"]') : null;
+    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\s*:\s*','i'),'').trim();
     let course='', assignment='';
-    links.forEach(a=>{
-      const href=a.getAttribute('href')||''; const t=(a.textContent||'').trim();
-      if(/\/course\/view\.php/i.test(href)) course=t||course;
-      if(/\/mod\/assign\/view\.php/i.test(href)) assignment=t||assignment;
-    });
+
+    if(info){
+      const courseLink=info.querySelector('a[href*="/course/view.php"]');
+      if(courseLink){ course = stripLabel(courseLink.textContent || courseLink.title || '', 'Course'); }
+
+      const assignLink=info.querySelector('a[href*="/mod/assign/view.php"]:not([href*="action=grading"])') || info.querySelector('a[href*="/mod/assign/view.php"]');
+      if(assignLink){ assignment = stripLabel(assignLink.textContent || assignLink.title || '', 'Assignment'); }
+    }
+
+    if(!course || !assignment){
+      const links=(info || document).querySelectorAll('a[href*="/course/view.php"], a[href*="/mod/assign/view.php"]');
+      links.forEach(a=>{
+        const href=a.getAttribute('href')||''; const t=(a.textContent||a.getAttribute('title')||'').trim();
+        if(!course && /\/course\/view\.php/i.test(href)) course=stripLabel(t,'Course');
+        if(/\/mod\/assign\/view\.php/i.test(href)){
+          const clean=stripLabel(t,'Assignment');
+          if(!assignment || (!/action=grading/i.test(href) && clean)) assignment = clean || assignment;
+        }
+      });
+    }
     return { course, assignment };
   }
 
@@ -283,7 +299,6 @@
     let student = getStudentName();
     student = sanitizeName(student);
 
-    const when=getDateStr();
     const { items, selectedSum, overallFeedback, currentGradebook } = collectRubricData();
 
     const critBlocks = items.map(it=>{
@@ -318,7 +333,6 @@ ${levels}
     const courseText = escapeHTML(course || '—');
     const assignmentText = escapeHTML(assignment || '—');
     const studentText = escapeHTML(student || '—');
-    const whenText = escapeHTML(when);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -333,7 +347,7 @@ ${levels}
       --fit-scale: 1;
       --level-min: 110px;
       --level-gap: 5px;
-      --rubric-fs: 6px;
+      --desc-fs: 6px;
     }
 
     @page {
@@ -503,13 +517,13 @@ ${levels}
       font-weight: 950;
       margin-bottom: 4px;
       text-align: center;
-      font-size: calc(var(--rubric-fs) + 1px);
+      font-size: 12px;
     }
 
     .pts {
       font-weight: 700;
       opacity: .9;
-      font-size: var(--rubric-fs);
+      font-size: 11px;
     }
 
     .ldesc {
@@ -517,7 +531,7 @@ ${levels}
       word-break: break-word;
       overflow-wrap: anywhere;
       color: #111;
-      font-size: var(--rubric-fs);
+      font-size: var(--desc-fs);
       line-height: 1.25;
     }
 
@@ -583,17 +597,17 @@ ${levels}
     }
 
     body.fit-active .level .tok {
-      font-size: calc(var(--rubric-fs) + 1px);
+      font-size: 12px;
       margin-bottom: 2px;
     }
 
     body.fit-active .level .ldesc {
-      font-size: var(--rubric-fs);
+      font-size: var(--desc-fs);
       line-height: 1.25;
     }
 
     body.fit-active .level .pts {
-      font-size: var(--rubric-fs);
+      font-size: 11px;
     }
 
     @media print {
@@ -681,7 +695,6 @@ ${levels}
             <div><strong>Course:</strong> ${courseText}</div>
             <div><strong>Assignment:</strong> ${assignmentText}</div>
             <div><strong>Student:</strong> ${studentText}</div>
-            <div><strong>Generated:</strong> ${whenText}</div>
             <div><strong>Current grade in gradebook:</strong> ${gradebookText}</div>
             <div><strong>Overall grade (selected sum):</strong> ${selectedText}</div>
           </div>
@@ -829,7 +842,7 @@ ${levels}
       if (fontSizeRange) {
         const updateFS = () => {
           const val = fontSizeRange.value;
-          document.documentElement.style.setProperty('--rubric-fs', val + 'px');
+          document.documentElement.style.setProperty('--desc-fs', val + 'px');
           if (fontSizeVal) fontSizeVal.textContent = val + 'px';
           fitStable();
         };

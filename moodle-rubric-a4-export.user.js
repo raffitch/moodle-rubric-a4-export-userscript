@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.1
+// @version      4.4.2
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -167,7 +167,7 @@
   function getCourseAndAssignment(){
     const nav=document.querySelector('[data-region="grading-navigation"]');
     const info=nav? nav.querySelector('[data-region="assignment-info"]') : null;
-    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\s*:\s*','i'),'').trim();
+    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\\s*:\s*','i'),'').trim();
     let course='', assignment='';
 
     if(info){
@@ -210,7 +210,6 @@
     return '';
   }
 
-  function getDateStr(){ try{ return new Date().toLocaleDateString(undefined,{year:'numeric',month:'short',day:'2-digit'});}catch{ return String(new Date()).replace(/\s+\d{2}:\d{2}.*$/,''); } }
 
   function htmlToPlainText(html){
     const div=document.createElement('div'); div.innerHTML=html;

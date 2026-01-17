@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.3
+// @version      4.4.4
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -338,8 +338,8 @@ ${levels}
   <title>Rubric Export Preview${studentText ? ' — ' + studentText : ''}</title>
   <style>
     :root {
-      --page-width: 297mm;
-      --page-height: 210mm;
+      --page-width: 210mm;
+      --page-height: 297mm;
       --fit-scale: 1;
       --level-min: 110px;
       --level-gap: 5px;
@@ -672,8 +672,8 @@ ${levels}
     <label><input id="toggleFit" type="checkbox" checked /> Fit to A4</label>
     <label>
       <select id="selOrientation">
-        <option value="landscape" selected>A4 Landscape</option>
-        <option value="portrait">A4 Portrait</option>
+        <option value="landscape">A4 Landscape</option>
+        <option value="portrait" selected>A4 Portrait</option>
       </select>
     </label>
     <label>Font Size
@@ -783,7 +783,7 @@ ${levels}
       }
 
       function updateOrientation() {
-        const val = selOrientation ? selOrientation.value : 'landscape';
+        const val = selOrientation ? selOrientation.value : 'portrait';
         const isLand = val === 'landscape';
 
         const w = isLand ? A4_W : A4_H;

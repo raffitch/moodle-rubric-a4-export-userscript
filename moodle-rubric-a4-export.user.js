@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.5
+// @version      4.4.6
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -966,9 +966,26 @@ ${levels}
     const wrap=document.createElement('div'); const style=document.createElement('style');
     style.textContent=`
       :host { all: initial; }
-      .panel { box-sizing:border-box; width:min(46vw,620px); max-width:95vw; background:#fff; border:1px solid rgba(0,0,0,.15);
-               border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.15); padding:10px; font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; }
-      h4 { margin:0 0 6px 0; font-size:13px; font-weight:600; }
+      .shell { position: relative; }
+      .blob {
+        position: absolute; left: 0; top: 0;
+        width: 56px; height: 56px; border-radius: 999px;
+        background: linear-gradient(135deg, #6b8bff, #9b7bff);
+        box-shadow: 0 10px 30px rgba(0,0,0,.25);
+        color: #fff; font: 20px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+        display: grid; place-items: center; cursor: pointer; border: 0;
+      }
+      .blob:hover { box-shadow: 0 12px 36px rgba(0,0,0,.32); transform: translateY(-1px); }
+      .panel {
+        box-sizing:border-box; width:auto; max-width: 420px; min-width: 260px;
+        background:#fff; border:1px solid rgba(0,0,0,.15);
+        border-radius:14px; box-shadow:0 12px 36px rgba(0,0,0,.2);
+        padding:10px; font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111;
+      }
+      .panel.hidden { display: none; }
+      .header { display:flex; align-items:center; gap:8px; }
+      .title { font-size:13px; font-weight:700; }
+      .spacer { flex:1; }
       textarea { width:100%; min-height:40px; max-height:120px; resize:vertical; padding:8px; border:1px solid rgba(0,0,0,.2); border-radius:8px; font:inherit; }
       .row { margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
       .btn { padding:6px 10px; border-radius:8px; border:1px solid rgba(0,0,0,.2); background:#f8f8f8; cursor:pointer; font-weight:600; }
@@ -976,20 +993,28 @@ ${levels}
       .accent  { background:#28a745; color:#fff; border-color:#28a745; }
       .status { margin-left:auto; font-weight:600; }
       .error { margin-top:6px; color:#b00020; white-space:pre-wrap; }
-      label.chk { display:inline-flex; align-items:center; gap:6px; font-size:12px; }
+      label.chk { display:inline-flex; align-items:center; gap:6px; font-size:12px; user-select:none; }
+      .icon-btn { border:1px solid rgba(0,0,0,.2); background:#f8f8f8; border-radius:999px; width:28px; height:28px; display:grid; place-items:center; cursor:pointer; }
     `;
     wrap.innerHTML = `
-      <div class="panel">
-        <h4>Insert Comma Seperated Grades</h4>
-        <textarea id="tokens" placeholder="A, A-, A, A-, NS"></textarea>
-        <div class="row">
-          <label class="chk"><input type="checkbox" id="compactToggle" checked> Compact rubric view</label>
-          <button id="apply" class="btn primary" type="button">Apply</button>
-          <button id="rescan" class="btn" type="button" title="Re-scan rubric">Rescan</button>
-          <button id="export" class="btn accent" type="button" title="Open A4 preview with fit/orientation controls">Export A4</button>
-          <span class="status">Criteria: <span id="count">…</span></span>
+      <div class="shell">
+        <button class="blob" id="blobToggle" type="button" title="Open tools">✦</button>
+        <div class="panel" id="panel">
+          <div class="header">
+            <div class="title">Insert Comma Seperated Grades</div>
+            <div class="spacer"></div>
+            <label class="chk"><input type="checkbox" id="compactToggle" checked> Compact</label>
+            <button class="icon-btn" id="minimize" type="button" title="Minimize">—</button>
+          </div>
+          <textarea id="tokens" placeholder="A, A-, A, A-, NS"></textarea>
+          <div class="row">
+            <button id="apply" class="btn primary" type="button">Apply</button>
+            <button id="rescan" class="btn" type="button" title="Re-scan rubric">Rescan</button>
+            <button id="export" class="btn accent" type="button" title="Open A4 preview with fit/orientation controls">Export A4</button>
+            <span class="status">Criteria: <span id="count">…</span></span>
+          </div>
+          <div id="error" class="error"></div>
         </div>
-        <div id="error" class="error"></div>
       </div>
     `;
     shadow.append(style, wrap);
@@ -999,9 +1024,19 @@ ${levels}
 
     const $=(sel)=>shadow.querySelector(sel);
     const tokensEl=$('#tokens'); const errorEl=$('#error'); const countEl=$('#count'); const compactToggle=$('#compactToggle');
+    const blobBtn=$('#blobToggle'); const panelEl=$('#panel'); const minimizeBtn=$('#minimize');
     const setCount=()=>{ countEl.textContent=String(countCriteria()); };
     const saved=safeGet(LS_KEY); if(saved) tokensEl.value=saved; setCount();
     if(compactToggle){ compactToggle.checked=true; compactToggle.addEventListener('change',()=>{ applyCompactCSS(!!compactToggle.checked); }); applyCompactCSS(true); }
+
+    const setExpanded=(flag)=>{
+      if(!panelEl || !blobBtn) return;
+      panelEl.classList.toggle('hidden', !flag);
+      blobBtn.style.display = flag ? 'none' : 'grid';
+    };
+    if(blobBtn) blobBtn.addEventListener('click', ()=>setExpanded(true));
+    if(minimizeBtn) minimizeBtn.addEventListener('click', ()=>setExpanded(false));
+    setExpanded(true);
 
     $('#rescan').addEventListener('click',()=>{ try{ transformTokensOnce(document); setCount(); errorEl.textContent=''; }catch(_){} });
     $('#apply').addEventListener('click',()=>{

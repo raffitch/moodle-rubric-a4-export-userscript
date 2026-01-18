@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.4
+// @version      4.4.5
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -89,7 +89,17 @@
     .gradingform_rubric .criteria .criterion .criterionremark,
     .gradingform_rubric .criteria .criterion textarea { display: none !important; }
   `;
-  function injectCSS(){ if(document.getElementById('rtRubricCompactCSS_SAFE')) return; const st=document.createElement('style'); st.id='rtRubricCompactCSS_SAFE'; st.textContent=CSS; document.head.appendChild(st); }
+  function applyCompactCSS(enabled){
+    const id='rtRubricCompactCSS_SAFE';
+    const existing=document.getElementById(id);
+    if(enabled){
+      if(existing) return existing;
+      const st=document.createElement('style'); st.id=id; st.textContent=CSS; document.head.appendChild(st); return st;
+    }
+    if(existing){ existing.remove(); }
+    return null;
+  }
+  function injectCSS(){ applyCompactCSS(true); }
 
   /* ------------------- Tokenize visible labels ------------------- */
   function transformTokensOnce(root){
@@ -966,21 +976,20 @@ ${levels}
       .accent  { background:#28a745; color:#fff; border-color:#28a745; }
       .status { margin-left:auto; font-weight:600; }
       .error { margin-top:6px; color:#b00020; white-space:pre-wrap; }
-      .hint { margin-top:6px; color:#555; font-size:12px; }
+      label.chk { display:inline-flex; align-items:center; gap:6px; font-size:12px; }
     `;
     wrap.innerHTML = `
       <div class="panel">
-        <h4>Quick grade (comma/space separated: A, A-, B+, NS …)</h4>
+        <h4>Insert Comma Seperated Grades</h4>
         <textarea id="tokens" placeholder="A, A-, A, A-, NS"></textarea>
         <div class="row">
+          <label class="chk"><input type="checkbox" id="compactToggle" checked> Compact rubric view</label>
           <button id="apply" class="btn primary" type="button">Apply</button>
-          <button id="clear" class="btn"  type="button">Clear</button>
           <button id="rescan" class="btn" type="button" title="Re-scan rubric">Rescan</button>
           <button id="export" class="btn accent" type="button" title="Open A4 preview with fit/orientation controls">Export A4</button>
           <span class="status">Criteria: <span id="count">…</span></span>
         </div>
         <div id="error" class="error"></div>
-        <div class="hint">Preview has Show all levels, Fit to A4, orientation, and font size controls before printing.</div>
       </div>
     `;
     shadow.append(style, wrap);
@@ -989,13 +998,11 @@ ${levels}
     window.__rtShowPanel = () => { try{ host.style.display = "block"; }catch(_){ } };
 
     const $=(sel)=>shadow.querySelector(sel);
-    const tokensEl=$('#tokens'); const errorEl=$('#error'); const countEl=$('#count');
+    const tokensEl=$('#tokens'); const errorEl=$('#error'); const countEl=$('#count'); const compactToggle=$('#compactToggle');
     const setCount=()=>{ countEl.textContent=String(countCriteria()); };
     const saved=safeGet(LS_KEY); if(saved) tokensEl.value=saved; setCount();
+    if(compactToggle){ compactToggle.checked=true; compactToggle.addEventListener('change',()=>{ applyCompactCSS(!!compactToggle.checked); }); applyCompactCSS(true); }
 
-    $('#clear').addEventListener('click',()=>{
-      tokensEl.value=''; try{localStorage.removeItem(LS_KEY);}catch(_){} try{sessionStorage.removeItem(LS_KEY);}catch(_){} if(window.__rtMemStore) delete window.__rtMemStore[LS_KEY]; errorEl.textContent='';
-    });
     $('#rescan').addEventListener('click',()=>{ try{ transformTokensOnce(document); setCount(); errorEl.textContent=''; }catch(_){} });
     $('#apply').addEventListener('click',()=>{
       errorEl.textContent=''; const raw=tokensEl.value; safeSet(LS_KEY, raw);

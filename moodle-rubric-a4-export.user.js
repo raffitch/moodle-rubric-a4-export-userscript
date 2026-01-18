@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.6
+// @version      4.4.7
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -966,18 +966,19 @@ ${levels}
     const wrap=document.createElement('div'); const style=document.createElement('style');
     style.textContent=`
       :host { all: initial; }
-      .shell { position: relative; }
+      .shell { position: relative; display: inline-block; padding-left: 70px; padding-top: 12px; }
       .blob {
-        position: absolute; left: 0; top: 0;
-        width: 56px; height: 56px; border-radius: 999px;
+        position: absolute; left: -10px; top: -14px;
+        width: 60px; height: 60px; border-radius: 999px;
         background: linear-gradient(135deg, #6b8bff, #9b7bff);
         box-shadow: 0 10px 30px rgba(0,0,0,.25);
         color: #fff; font: 20px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-        display: grid; place-items: center; cursor: pointer; border: 0;
+        display: grid; place-items: center; cursor: pointer; border: 0; z-index: 2;
+        transition: transform 0.1s ease, box-shadow 0.1s ease;
       }
       .blob:hover { box-shadow: 0 12px 36px rgba(0,0,0,.32); transform: translateY(-1px); }
       .panel {
-        box-sizing:border-box; width:auto; max-width: 420px; min-width: 260px;
+        box-sizing:border-box; width:auto; max-width: 360px; min-width: 240px;
         background:#fff; border:1px solid rgba(0,0,0,.15);
         border-radius:14px; box-shadow:0 12px 36px rgba(0,0,0,.2);
         padding:10px; font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111;
@@ -986,7 +987,7 @@ ${levels}
       .header { display:flex; align-items:center; gap:8px; }
       .title { font-size:13px; font-weight:700; }
       .spacer { flex:1; }
-      textarea { width:100%; min-height:40px; max-height:120px; resize:vertical; padding:8px; border:1px solid rgba(0,0,0,.2); border-radius:8px; font:inherit; }
+      textarea { width:100%; max-width: 320px; min-height:40px; max-height:120px; resize:vertical; padding:8px; border:1px solid rgba(0,0,0,.2); border-radius:8px; font:inherit; }
       .row { margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
       .btn { padding:6px 10px; border-radius:8px; border:1px solid rgba(0,0,0,.2); background:#f8f8f8; cursor:pointer; font-weight:600; }
       .primary { background:#0d6efd; color:#fff; border-color:#0d6efd; }
@@ -1003,7 +1004,7 @@ ${levels}
           <div class="header">
             <div class="title">Insert Comma Seperated Grades</div>
             <div class="spacer"></div>
-            <label class="chk"><input type="checkbox" id="compactToggle" checked> Compact</label>
+            <label class="chk"><input type="checkbox" id="compactToggle" checked> Compact rubric</label>
             <button class="icon-btn" id="minimize" type="button" title="Minimize">—</button>
           </div>
           <textarea id="tokens" placeholder="A, A-, A, A-, NS"></textarea>

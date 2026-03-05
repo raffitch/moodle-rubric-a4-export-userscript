@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.10
+// @version      4.4.11
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -79,8 +79,8 @@
   const CSS = `
     .gradingform_rubric .levels .level .score { display: none !important; }
     .gradingform_rubric .levels .level { padding: .25rem .4rem !important; line-height: 1.2; }
-    /* Reduce letter grade tokens (A/B/C...) in grader view by 50% */
-    .gradingform_rubric .levels .level .definition { font-size: 50% !important; }
+    /* Reduce letter grade tokens (A/B/C...) in grader view by 60% */
+    .gradingform_rubric .levels .level .definition { font-size: 40% !important; }
 
     .gradingform_rubric .criteria .criterion .description,
     .gradingform_rubric .criteria .criterion .criteriondescription {
@@ -319,12 +319,36 @@
       return `${escapeHTML(a)}<br>${escapeHTML(b)}`;
     }
 
+    // Split descriptor text into two roughly equal lines to minimize horizontal overflow.
+    function descriptorTwoLines(text){
+      const clean = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!clean) return '<span class="dline">—</span><span class="dline">&nbsp;</span>';
+      const words = clean.split(' ');
+      if (words.length < 3) return `<span class="dline">${escapeHTML(clean)}</span><span class="dline">&nbsp;</span>`;
+
+      const totalLen = words.reduce((n, w) => n + w.length, 0) + (words.length - 1);
+      const target = totalLen / 2;
+      let cut = 1;
+      let bestDiff = Number.POSITIVE_INFINITY;
+      let acc = words[0].length;
+
+      for (let i = 1; i < words.length; i++) {
+        const diff = Math.abs(target - acc);
+        if (diff < bestDiff) { bestDiff = diff; cut = i; }
+        acc += 1 + words[i].length;
+      }
+
+      const line1 = words.slice(0, cut).join(' ');
+      const line2 = words.slice(cut).join(' ');
+      return `<span class="dline">${escapeHTML(line1)}</span><span class="dline">${escapeHTML(line2)}</span>`;
+    }
+
     const critBlocks = items.map(it=>{
       const levels = it.levels.map(l=>{
         const ptsText = l.points !== '' ? String(l.points) : '';
         const pts = ptsText ? ` <span class="pts">(${escapeHTML(ptsText)} pts)</span>` : '';
         const tok = escapeHTML(l.token || '—');
-        const desc = escapeHTML(l.description || '') || '—';
+        const desc = descriptorTwoLines(l.description || '');
         return `
               <div class="level ${l.selected?'sel':''}">
                 <div class="tok"><span class="grade">${tok}</span>${pts}</div>
@@ -366,8 +390,8 @@ ${levels}
       --level-min: 110px;
       --level-gap: 5px;
 
-      /* Descriptor font size (will be set by the slider, scaled down by 30%) */
-      --desc-fs: 6px;
+      /* Descriptor font size (will be set by the slider, scaled down by 45%) */
+      --desc-fs: 5px;
     }
 
     @page {
@@ -386,6 +410,7 @@ ${levels}
       color: #111;
       font-size: 12px;
       line-height: 1.35;
+      overflow-x: hidden;
     }
 
     .appbar {
@@ -551,12 +576,21 @@ ${levels}
     }
 
     .ldesc {
-      white-space: normal;
-      word-break: break-word;
-      overflow-wrap: anywhere;
+      display: grid;
+      grid-template-rows: auto auto;
+      row-gap: 1px;
       color: #111;
       font-size: var(--desc-fs);
       line-height: 1.25;
+      min-width: 0;
+    }
+
+    .ldesc .dline {
+      min-width: 0;
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .sel {
@@ -705,8 +739,8 @@ ${levels}
       </select>
     </label>
     <label>Font Size
-      <input id="fontSizeRange" type="range" min="4" max="14" value="6" step="0.5" style="width:100px" />
-      <span id="fontSizeVal">6px</span>
+      <input id="fontSizeRange" type="range" min="4" max="14" value="5" step="0.5" style="width:100px" />
+      <span id="fontSizeVal">5px</span>
     </label>
     <button id="btnPrint" type="button">Print / Save PDF</button>
   </div>
@@ -864,10 +898,10 @@ ${levels}
       }
 
       if (fontSizeRange) {
-        const DESC_SCALE = 0.7; // reduce descriptors by 30%
+        const DESC_SCALE = 0.55; // reduce descriptors by 45%
 
         const updateFS = () => {
-          const raw = parseFloat(fontSizeRange.value || '6');
+          const raw = parseFloat(fontSizeRange.value || '5');
           const actual = Math.round(raw * DESC_SCALE * 10) / 10; // one decimal
           document.documentElement.style.setProperty('--desc-fs', actual + 'px');
           if (fontSizeVal) fontSizeVal.textContent = actual + 'px';

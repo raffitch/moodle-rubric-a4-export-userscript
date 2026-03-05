@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.9
+// @version      4.4.10
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -1065,8 +1065,8 @@ ${levels}
     $('#apply').addEventListener('click',()=>{
       errorEl.textContent=''; const raw=tokensEl.value; safeSet(LS_KEY, raw);
       const tokens=parseTokens(raw).map(canonicalToken); const nCrit=countCriteria();
-      if(tokens.length!==nCrit){ errorEl.textContent=\`Token count (\${tokens.length}) does not match criteria (\${nCrit}). Parsed: [\${tokens.join(', ')}]\`; return; }
-      for(let i=0;i<tokens.length;i++){ if(!validToken(tokens[i])){ errorEl.textContent=\`Invalid token at position \${i+1}: "\${tokens[i]}".\`; return; } }
+      if(tokens.length!==nCrit){ errorEl.textContent=`Token count (${tokens.length}) does not match criteria (${nCrit}). Parsed: [${tokens.join(', ')}]`; return; }
+      for(let i=0;i<tokens.length;i++){ if(!validToken(tokens[i])){ errorEl.textContent=`Invalid token at position ${i+1}: "${tokens[i]}".`; return; } }
       const crits=getCriteria(); const missing=[];
       for(let i=0;i<crits.length;i++){
         const want=canonicalToken(tokens[i]); const levels=mapLevelsForCriterion(crits[i]);
@@ -1078,7 +1078,7 @@ ${levels}
         if(!entry || !entry.input){ missing.push(i+1); continue; }
         const ok=ensureSelected(entry); if(!ok) missing.push(i+1);
       }
-      errorEl.textContent = missing.length ? \`Could not select for criteria: \${missing.join(', ')}. (Try clicking once in the rubric then Apply again.)\` : 'Grades applied ✔';
+      errorEl.textContent = missing.length ? `Could not select for criteria: ${missing.join(', ')}. (Try clicking once in the rubric then Apply again.)` : 'Grades applied ✔';
     });
     $('#export').addEventListener('click',()=>{ try{ transformTokensOnce(document); }catch(_){} try{ if (window.__rtHidePanel) window.__rtHidePanel(); }catch(_){ } openReportWindowSyncOrFallback(); });
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.17
+// @version      4.4.18
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -56,7 +56,7 @@
   const parseTokens  = (raw)=> !raw?[] : (normalizeSep(raw).includes(',')? normalizeSep(raw).split(','): normalizeSep(raw).trim().split(/\s+/)).map(t=>t.trim()).filter(Boolean);
   const validToken   = (tok)=>/^[A-F](?:[+-])?$/.test(String(tok).trim().toUpperCase()) || /^(NS|NA|N\/A|ABS|AB)$/i.test(String(tok));
   const canonicalToken=(tok)=>{const t=String(tok).trim().toUpperCase(); if(/^(NS|NA|N\/A|ABS|AB)$/.test(t)) return 'NS'; const m=t.match(/^([A-F])([+-])?$/); return m?(m[1]+(m[2]||'')):t;};
-  const FALLBACK_TOKEN_LADDER=['A','B','C','D','E','F'];
+  const FALLBACK_TOKEN_LADDER=['A','A-','B+','B','B-','C+','C','C-','D+','D','F'];
   const isNotSubmittedText=(s)=>/\b(?:not\s*submitted|not\s*presented|no\s*submission|not\s*attempted)\b/i.test(String(s||''));
   function extractToken(s){
     if(!s) return ''; const text=String(s).trim();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.14
+// @version      4.4.15
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -56,18 +56,22 @@
   const parseTokens  = (raw)=> !raw?[] : (normalizeSep(raw).includes(',')? normalizeSep(raw).split(','): normalizeSep(raw).trim().split(/\s+/)).map(t=>t.trim()).filter(Boolean);
   const validToken   = (tok)=>/^[A-F](?:[+-])?$/.test(String(tok).trim().toUpperCase()) || /^(NS|NA|N\/A|ABS|AB)$/i.test(String(tok));
   const canonicalToken=(tok)=>{const t=String(tok).trim().toUpperCase(); if(/^(NS|NA|N\/A|ABS|AB)$/.test(t)) return 'NS'; const m=t.match(/^([A-F])([+-])?$/); return m?(m[1]+(m[2]||'')):t;};
-  const FALLBACK_TOKEN_LADDER=['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','E+','E','E-','F+','F','NS'];
+  const FALLBACK_TOKEN_LADDER=['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','E+','E','E-','F'];
+  const isNotSubmittedText=(s)=>/\b(?:not\s*submitted|not\s*presented|no\s*submission|not\s*attempted)\b/i.test(String(s||''));
   function extractToken(s){
     if(!s) return ''; const text=String(s).trim();
     let m=text.match(/^\(\s*([A-F][+-]?|NS)\s*[:)\-–—]/i); if(m&&m[1]) return canonicalToken(m[1]);
     m=text.match(/^\s*([A-F][+-]?|NS)\s*(?:[:\-–—)]|$)/i); if(m&&m[1]) return canonicalToken(m[1]);
     m=text.match(/\[\s*([A-F][+-]?|NS)\s*[:\]]/i); if(m&&m[1]) return canonicalToken(m[1]);
     if(/^\s*(NS|NA|N\/A|ABS|AB)\s*$/i.test(text)) return 'NS';
-    if(/^\s*NOT\s*SUBMITTED\s*$/i.test(text)) return 'NS';
+    if(isNotSubmittedText(text)) return 'NS';
     return '';
   }
-  function tokenByRank(rank){
-    const i = clampNum(Number(rank)||0, 0, FALLBACK_TOKEN_LADDER.length-1);
+  function tokenByRank(rank,total){
+    const max = FALLBACK_TOKEN_LADDER.length-1;
+    const n = Math.max(1, Number(total)||1);
+    const r = clampNum(Number(rank)||0, 0, n-1);
+    const i = (n<=1) ? 0 : Math.round((r/(n-1))*max);
     return FALLBACK_TOKEN_LADDER[i] || 'NS';
   }
 
@@ -185,19 +189,23 @@
         if(!label) label=input.closest('label');
         if(!label) label=level.querySelector('label');
       }
-      return { level, token: tok, input, label, full, points: pts, __idx: idx, __pNum: Number.isFinite(pNum)?pNum:null };
+      return { level, token: tok, input, label, full, points: pts, __idx: idx, __pNum: Number.isFinite(pNum)?pNum:null, __isNS: isNotSubmittedText(full) };
     });
 
-    const rankedScores=[...new Set(rows.map(r=>r.__pNum).filter(v=>v!==null).sort((a,b)=>b-a))];
+    const nonNSRows=rows.filter(r=>!r.__isNS);
+    const rankedScores=[...new Set(nonNSRows.map(r=>r.__pNum).filter(v=>v!==null).sort((a,b)=>b-a))];
     const scoreToRank=new Map(rankedScores.map((v,i)=>[v,i]));
+    const rowIndexToNonNSRank=new Map(nonNSRows.map((r,i)=>[r.__idx,i]));
 
     return rows.map(r=>{
       let token=r.token;
       if(!token){
-        if(r.__pNum!==null && scoreToRank.has(r.__pNum)){
-          token=tokenByRank(scoreToRank.get(r.__pNum));
+        if(r.__isNS){
+          token='NS';
+        } else if(r.__pNum!==null && scoreToRank.has(r.__pNum)){
+          token=tokenByRank(scoreToRank.get(r.__pNum), rankedScores.length);
         } else {
-          token=tokenByRank(r.__idx);
+          token=tokenByRank(rowIndexToNonNSRank.get(r.__idx) || 0, nonNSRows.length || 1);
         }
       }
       return { level:r.level, token:canonicalToken(token), input:r.input, label:r.label, full:r.full, points:r.points };

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.13
+// @version      4.4.14
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -56,13 +56,19 @@
   const parseTokens  = (raw)=> !raw?[] : (normalizeSep(raw).includes(',')? normalizeSep(raw).split(','): normalizeSep(raw).trim().split(/\s+/)).map(t=>t.trim()).filter(Boolean);
   const validToken   = (tok)=>/^[A-F](?:[+-])?$/.test(String(tok).trim().toUpperCase()) || /^(NS|NA|N\/A|ABS|AB)$/i.test(String(tok));
   const canonicalToken=(tok)=>{const t=String(tok).trim().toUpperCase(); if(/^(NS|NA|N\/A|ABS|AB)$/.test(t)) return 'NS'; const m=t.match(/^([A-F])([+-])?$/); return m?(m[1]+(m[2]||'')):t;};
+  const FALLBACK_TOKEN_LADDER=['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','E+','E','E-','F+','F','NS'];
   function extractToken(s){
     if(!s) return ''; const text=String(s).trim();
-    let m=text.match(/^\(\s*([A-F][+-]?|NS)\s*:/i); if(m&&m[1]) return canonicalToken(m[1]);
-    m=text.match(/^\s*([A-F][+-]?|NS)\s*[:\-–—]/i); if(m&&m[1]) return canonicalToken(m[1]);
+    let m=text.match(/^\(\s*([A-F][+-]?|NS)\s*[:)\-–—]/i); if(m&&m[1]) return canonicalToken(m[1]);
+    m=text.match(/^\s*([A-F][+-]?|NS)\s*(?:[:\-–—)]|$)/i); if(m&&m[1]) return canonicalToken(m[1]);
+    m=text.match(/\[\s*([A-F][+-]?|NS)\s*[:\]]/i); if(m&&m[1]) return canonicalToken(m[1]);
     if(/^\s*(NS|NA|N\/A|ABS|AB)\s*$/i.test(text)) return 'NS';
     if(/^\s*NOT\s*SUBMITTED\s*$/i.test(text)) return 'NS';
-    m=text.match(/([A-F])\s*([+-])?/i); return m?(m[1].toUpperCase()+((m[2]||'').toUpperCase())):'';
+    return '';
+  }
+  function tokenByRank(rank){
+    const i = clampNum(Number(rank)||0, 0, FALLBACK_TOKEN_LADDER.length-1);
+    return FALLBACK_TOKEN_LADDER[i] || 'NS';
   }
 
   /* ------------------- Wait for rubric ------------------- */
@@ -130,11 +136,22 @@
   }
 
   /* ------------------- Tokenize visible labels ------------------- */
-  function transformTokensOnce(root){
-    root.querySelectorAll('.gradingform_rubric .levels .level .definition').forEach(d=>{
+  function ensureDefinitionCache(root){
+    (root || document).querySelectorAll('.gradingform_rubric .levels .level .definition').forEach(d=>{
       const full=d.getAttribute('data-rt-full')||d.textContent||'';
-      if(!d.hasAttribute('data-rt-full')){ d.setAttribute('data-rt-full', full); d.setAttribute('title', full.trim()); }
-      d.textContent = extractToken(full) || '·';
+      if(!d.hasAttribute('data-rt-full')) d.setAttribute('data-rt-full', full);
+      if(!d.hasAttribute('title')) d.setAttribute('title', String(full).trim());
+    });
+  }
+  function transformTokensOnce(root){
+    ensureDefinitionCache(root);
+    const scope=root||document;
+    scope.querySelectorAll('.gradingform_rubric .criteria .criterion').forEach(cr=>{
+      mapLevelsForCriterion(cr).forEach(entry=>{
+        const d=entry.level ? entry.level.querySelector('.definition') : null;
+        if(!d) return;
+        d.textContent = entry.token || '·';
+      });
     });
   }
 
@@ -153,12 +170,14 @@
   }
 
   function mapLevelsForCriterion(criterionEl){
+    ensureDefinitionCache(criterionEl);
     const levels=Array.from(criterionEl.querySelectorAll('.levels .level'));
-    return levels.map(level=>{
+    const rows=levels.map((level, idx)=>{
       const def=level.querySelector('.definition');
       const full=(def ? (def.getAttribute('data-rt-full')||def.textContent) : '')||'';
       const tok=extractToken(full);
       const pts=extractPointsFromLevel(level);
+      const pNum=parseFloat(pts);
       const input=level.querySelector('input[type="radio"], input[type="checkbox"]');
       let label=null;
       if(input){
@@ -166,7 +185,22 @@
         if(!label) label=input.closest('label');
         if(!label) label=level.querySelector('label');
       }
-      return { level, token: tok, input, label, full, points: pts };
+      return { level, token: tok, input, label, full, points: pts, __idx: idx, __pNum: Number.isFinite(pNum)?pNum:null };
+    });
+
+    const rankedScores=[...new Set(rows.map(r=>r.__pNum).filter(v=>v!==null).sort((a,b)=>b-a))];
+    const scoreToRank=new Map(rankedScores.map((v,i)=>[v,i]));
+
+    return rows.map(r=>{
+      let token=r.token;
+      if(!token){
+        if(r.__pNum!==null && scoreToRank.has(r.__pNum)){
+          token=tokenByRank(scoreToRank.get(r.__pNum));
+        } else {
+          token=tokenByRank(r.__idx);
+        }
+      }
+      return { level:r.level, token:canonicalToken(token), input:r.input, label:r.label, full:r.full, points:r.points };
     });
   }
 

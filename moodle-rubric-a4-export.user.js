@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.12
+// @version      4.4.13
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -21,6 +21,10 @@
 
   const PAGE_OK = () => document.body && document.body.id === 'page-mod-assign-grader';
   const LS_KEY = 'rtGradeTokens';
+  const LS_GRADE_SCALE_KEY = 'rtCompactGradeScale';
+  const LS_DESC_SCALE_KEY = 'rtCompactDescScale';
+  const DEFAULT_GRADE_SCALE = 30;
+  const DEFAULT_DESC_SCALE = 60;
 
   /* ---------- STORAGE SHIELD (quota + noisy key) ---------- */
   (function storageShield(){
@@ -44,6 +48,8 @@
 
   const safeGet = (k) => { try{const v=localStorage.getItem(k); if(v!=null) return v;}catch(_){} try{const v=sessionStorage.getItem(k); if(v!=null) return v;}catch(_){} try{return (window.__rtMemStore||{})[k]||null;}catch(_){return null;} };
   const safeSet = (k,val) => { try{localStorage.setItem(k,val);return;}catch(_){} try{sessionStorage.setItem(k,val);return;}catch(_){} try{window.__rtMemStore=window.__rtMemStore||{}; window.__rtMemStore[k]=val;return;}catch(_){} };
+  const clampNum = (n,min,max)=>Math.min(max,Math.max(min,n));
+  const parseStoredNumber = (raw,fallback,min,max)=>{ const n=parseFloat(String(raw)); return Number.isFinite(n)?clampNum(n,min,max):fallback; };
 
   /* ------------------- Token helpers ------------------- */
   const normalizeSep = (s)=>String(s).replace(/[،؛;\n\r\t]+/g,',').replace(/\s*,\s*/g,',').replace(/,+/g,',').replace(/^,|,$/g,'');
@@ -77,14 +83,19 @@
 
   /* ------------------- Compact CSS (grader page) ------------------- */
   const CSS = `
+    :root {
+      --rt-grade-def-scale: ${DEFAULT_GRADE_SCALE}%;
+      --rt-crit-desc-scale: ${DEFAULT_DESC_SCALE}%;
+    }
+
     .gradingform_rubric .levels .level .score { display: none !important; }
     .gradingform_rubric .levels .level { padding: .25rem .4rem !important; line-height: 1.2; }
-    /* Reduce letter grade tokens (A/B/C...) in grader view by 60% */
-    .gradingform_rubric .levels .level .definition { font-size: 40% !important; }
+    /* Compact letter grades in grader view */
+    .gradingform_rubric .levels .level .definition { font-size: var(--rt-grade-def-scale, ${DEFAULT_GRADE_SCALE}%) !important; }
 
     .gradingform_rubric .criteria .criterion .description,
     .gradingform_rubric .criteria .criterion .criteriondescription {
-      font-size: 72% !important;
+      font-size: var(--rt-crit-desc-scale, ${DEFAULT_DESC_SCALE}%) !important;
       line-height: 1.15 !important;
       max-width: 52ch;
       margin: 0 !important;
@@ -111,6 +122,12 @@
     return null;
   }
   function injectCSS(){ applyCompactCSS(true); }
+  function setCompactScales(gradePct, descPct){
+    const g = clampNum(Number(gradePct), 20, 60);
+    const d = clampNum(Number(descPct), 45, 85);
+    document.documentElement.style.setProperty('--rt-grade-def-scale', `${g}%`);
+    document.documentElement.style.setProperty('--rt-crit-desc-scale', `${d}%`);
+  }
 
   /* ------------------- Tokenize visible labels ------------------- */
   function transformTokensOnce(root){
@@ -1060,6 +1077,18 @@ ${levels}
       .error { margin-top:6px; color:#b00020; white-space:pre-wrap; }
       label.chk { display:inline-flex; align-items:center; gap:6px; font-size:12px; user-select:none; }
       .icon-btn { border:1px solid rgba(0,0,0,.2); background:#f8f8f8; border-radius:999px; width:28px; height:28px; display:grid; place-items:center; cursor:pointer; }
+      .slider-row { margin-top:6px; gap:6px; }
+      .slider {
+        flex: 1 1 150px;
+        min-width: 140px;
+        display: grid;
+        grid-template-columns: 38px 1fr 44px;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+      }
+      .slider input[type="range"] { width: 100%; }
+      .slider .val { text-align: right; font-variant-numeric: tabular-nums; color: #374151; }
     `;
     wrap.innerHTML = `
       <div class="shell">
@@ -1071,7 +1100,19 @@ ${levels}
             <label class="chk"><input type="checkbox" id="compactToggle" checked> Compact rubric</label>
             <button class="icon-btn" id="minimize" type="button" title="Minimize">—</button>
           </div>
-          <textarea id="tokens" placeholder="A, A-, A, A-, NS"></textarea>
+	          <textarea id="tokens" placeholder="A, A-, A, A-, NS"></textarea>
+          <div class="row slider-row">
+            <label class="slider" title="Letter grade token size in rubric">
+              <span>Grade</span>
+              <input id="gradeScale" type="range" min="20" max="60" step="1" value="${DEFAULT_GRADE_SCALE}" />
+              <span id="gradeScaleVal" class="val">${DEFAULT_GRADE_SCALE}%</span>
+            </label>
+            <label class="slider" title="Criterion description size in rubric">
+              <span>Desc</span>
+              <input id="descScale" type="range" min="45" max="85" step="1" value="${DEFAULT_DESC_SCALE}" />
+              <span id="descScaleVal" class="val">${DEFAULT_DESC_SCALE}%</span>
+            </label>
+          </div>
           <div class="row">
             <button id="apply" class="btn primary" type="button">Apply</button>
             <button id="rescan" class="btn" type="button" title="Re-scan rubric">Rescan</button>
@@ -1089,9 +1130,33 @@ ${levels}
 
     const $=(sel)=>shadow.querySelector(sel);
     const tokensEl=$('#tokens'); const errorEl=$('#error'); const countEl=$('#count'); const compactToggle=$('#compactToggle');
+    const gradeScaleEl=$('#gradeScale'); const descScaleEl=$('#descScale');
+    const gradeScaleValEl=$('#gradeScaleVal'); const descScaleValEl=$('#descScaleVal');
     const blobBtn=$('#blobToggle'); const panelEl=$('#panel'); const minimizeBtn=$('#minimize');
     const setCount=()=>{ countEl.textContent=String(countCriteria()); };
     const saved=safeGet(LS_KEY); if(saved) tokensEl.value=saved; setCount();
+    const applyCompactScalesFromUI=(persist)=>{
+      const gradeVal=parseStoredNumber(gradeScaleEl ? gradeScaleEl.value : DEFAULT_GRADE_SCALE, DEFAULT_GRADE_SCALE, 20, 60);
+      const descVal=parseStoredNumber(descScaleEl ? descScaleEl.value : DEFAULT_DESC_SCALE, DEFAULT_DESC_SCALE, 45, 85);
+      if(gradeScaleEl) gradeScaleEl.value=String(gradeVal);
+      if(descScaleEl) descScaleEl.value=String(descVal);
+      if(gradeScaleValEl) gradeScaleValEl.textContent=`${gradeVal}%`;
+      if(descScaleValEl) descScaleValEl.textContent=`${descVal}%`;
+      setCompactScales(gradeVal, descVal);
+      if(persist){
+        safeSet(LS_GRADE_SCALE_KEY, String(gradeVal));
+        safeSet(LS_DESC_SCALE_KEY, String(descVal));
+      }
+    };
+    if(gradeScaleEl && descScaleEl){
+      gradeScaleEl.value = String(parseStoredNumber(safeGet(LS_GRADE_SCALE_KEY), DEFAULT_GRADE_SCALE, 20, 60));
+      descScaleEl.value = String(parseStoredNumber(safeGet(LS_DESC_SCALE_KEY), DEFAULT_DESC_SCALE, 45, 85));
+      gradeScaleEl.addEventListener('input',()=>applyCompactScalesFromUI(true));
+      descScaleEl.addEventListener('input',()=>applyCompactScalesFromUI(true));
+      applyCompactScalesFromUI(false);
+    } else {
+      setCompactScales(DEFAULT_GRADE_SCALE, DEFAULT_DESC_SCALE);
+    }
     if(compactToggle){ compactToggle.checked=true; compactToggle.addEventListener('change',()=>{ applyCompactCSS(!!compactToggle.checked); }); applyCompactCSS(true); }
 
     const setExpanded=(flag)=>{

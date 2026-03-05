@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.15
+// @version      4.4.16
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -189,18 +189,32 @@
         if(!label) label=input.closest('label');
         if(!label) label=level.querySelector('label');
       }
-      return { level, token: tok, input, label, full, points: pts, __idx: idx, __pNum: Number.isFinite(pNum)?pNum:null, __isNS: isNotSubmittedText(full) };
+      return {
+        level, token: tok, input, label, full, points: pts,
+        __idx: idx,
+        __pNum: Number.isFinite(pNum)?pNum:null,
+        __isNS: isNotSubmittedText(full) || tok==='NS'
+      };
     });
 
-    const nonNSRows=rows.filter(r=>!r.__isNS);
+    // If there are multiple "NS-like" rows, keep only the lowest-score one as NS.
+    let keepNSIdx = -1;
+    const nsRows = rows.filter(r=>r.__isNS);
+    if(nsRows.length){
+      const scoredNS = nsRows.filter(r=>r.__pNum!==null).sort((a,b)=>a.__pNum-b.__pNum || b.__idx-a.__idx);
+      keepNSIdx = scoredNS.length ? scoredNS[0].__idx : nsRows[nsRows.length-1].__idx;
+    }
+
+    const nonNSRows=rows.filter(r=>r.__idx!==keepNSIdx);
     const rankedScores=[...new Set(nonNSRows.map(r=>r.__pNum).filter(v=>v!==null).sort((a,b)=>b-a))];
     const scoreToRank=new Map(rankedScores.map((v,i)=>[v,i]));
     const rowIndexToNonNSRank=new Map(nonNSRows.map((r,i)=>[r.__idx,i]));
 
     return rows.map(r=>{
       let token=r.token;
+      if(token==='NS' && r.__idx!==keepNSIdx) token='';
       if(!token){
-        if(r.__isNS){
+        if(r.__idx===keepNSIdx && r.__isNS){
           token='NS';
         } else if(r.__pNum!==null && scoreToRank.has(r.__pNum)){
           token=tokenByRank(scoreToRank.get(r.__pNum), rankedScores.length);

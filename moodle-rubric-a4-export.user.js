@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.8
+// @version      4.4.9
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -79,6 +79,9 @@
   const CSS = `
     .gradingform_rubric .levels .level .score { display: none !important; }
     .gradingform_rubric .levels .level { padding: .25rem .4rem !important; line-height: 1.2; }
+    /* Reduce letter grade tokens (A/B/C...) in grader view by 50% */
+    .gradingform_rubric .levels .level .definition { font-size: 50% !important; }
+
     .gradingform_rubric .criteria .criterion .description,
     .gradingform_rubric .criteria .criterion .criteriondescription {
       white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
@@ -174,7 +177,7 @@
   function getCourseAndAssignment(){
     const nav=document.querySelector('[data-region="grading-navigation"]');
     const info=nav? nav.querySelector('[data-region="assignment-info"]') : null;
-    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\s*:\s*','i'),'').trim();
+    const stripLabel=(txt,label)=>String(txt||'').replace(new RegExp('^'+label+'\\s*:\\s*','i'),'').trim();
     let course='', assignment='';
 
     if(info){
@@ -216,7 +219,6 @@
     }
     return '';
   }
-
 
   function htmlToPlainText(html){
     const div=document.createElement('div'); div.innerHTML=html;
@@ -300,12 +302,22 @@
   /* ------------------- Build A4 (Landscape) HTML using GRID and One-Page Scaling ------------------- */
   const escapeHTML=(s)=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    function buildReportHTML(){
+  function buildReportHTML(){
     const { course, assignment }=getCourseAndAssignment();
     let student = getStudentName();
     student = sanitizeName(student);
 
     const { items, selectedSum, overallFeedback, currentGradebook } = collectRubricData();
+
+    // Split title into two lines around the middle (by words)
+    function titleWithMidBreak(title){
+      const words = String(title || '').trim().split(/\s+/).filter(Boolean);
+      if (words.length <= 1) return escapeHTML(title || '');
+      const cut = Math.max(1, Math.floor(words.length / 2)); // 3 words => split after 1 (matches your example)
+      const a = words.slice(0, cut).join(' ');
+      const b = words.slice(cut).join(' ');
+      return `${escapeHTML(a)}<br>${escapeHTML(b)}`;
+    }
 
     const critBlocks = items.map(it=>{
       const levels = it.levels.map(l=>{
@@ -315,7 +327,7 @@
         const desc = escapeHTML(l.description || '') || '—';
         return `
               <div class="level ${l.selected?'sel':''}">
-                <div class="tok">${tok}${pts}</div>
+                <div class="tok"><span class="grade">${tok}</span>${pts}</div>
                 <div class="ldesc">${desc}</div>
               </div>`;
       }).join('');
@@ -324,7 +336,7 @@
             <div class="cmeta">
               <div class="cidx">${it.index}</div>
               <div class="ctitle">
-                <div class="ct">${escapeHTML(it.title)}</div>
+                <div class="ct">${titleWithMidBreak(it.title)}</div>
               </div>
             </div>
             <div class="levels">
@@ -353,6 +365,8 @@ ${levels}
       --fit-scale: 1;
       --level-min: 110px;
       --level-gap: 5px;
+
+      /* Descriptor font size (will be set by the slider, scaled down by 30%) */
       --desc-fs: 6px;
     }
 
@@ -500,6 +514,7 @@ ${levels}
 
     .ct {
       font-weight: 900;
+      line-height: 1.1;
     }
 
     .levels {
@@ -525,6 +540,9 @@ ${levels}
       text-align: center;
       font-size: 12px;
     }
+
+    /* Reduce the letter grade token (A/B/C/NS...) by 50% */
+    .grade { font-size: 50%; line-height: 1; display: inline-block; vertical-align: baseline; }
 
     .pts {
       font-weight: 700;
@@ -846,12 +864,16 @@ ${levels}
       }
 
       if (fontSizeRange) {
+        const DESC_SCALE = 0.7; // reduce descriptors by 30%
+
         const updateFS = () => {
-          const val = fontSizeRange.value;
-          document.documentElement.style.setProperty('--desc-fs', val + 'px');
-          if (fontSizeVal) fontSizeVal.textContent = val + 'px';
+          const raw = parseFloat(fontSizeRange.value || '6');
+          const actual = Math.round(raw * DESC_SCALE * 10) / 10; // one decimal
+          document.documentElement.style.setProperty('--desc-fs', actual + 'px');
+          if (fontSizeVal) fontSizeVal.textContent = actual + 'px';
           fitStable();
         };
+
         fontSizeRange.addEventListener('input', updateFS);
         updateFS();
       }
@@ -1043,8 +1065,8 @@ ${levels}
     $('#apply').addEventListener('click',()=>{
       errorEl.textContent=''; const raw=tokensEl.value; safeSet(LS_KEY, raw);
       const tokens=parseTokens(raw).map(canonicalToken); const nCrit=countCriteria();
-      if(tokens.length!==nCrit){ errorEl.textContent=`Token count (${tokens.length}) does not match criteria (${nCrit}). Parsed: [${tokens.join(', ')}]`; return; }
-      for(let i=0;i<tokens.length;i++){ if(!validToken(tokens[i])){ errorEl.textContent=`Invalid token at position ${i+1}: "${tokens[i]}".`; return; } }
+      if(tokens.length!==nCrit){ errorEl.textContent=\`Token count (\${tokens.length}) does not match criteria (\${nCrit}). Parsed: [\${tokens.join(', ')}]\`; return; }
+      for(let i=0;i<tokens.length;i++){ if(!validToken(tokens[i])){ errorEl.textContent=\`Invalid token at position \${i+1}: "\${tokens[i]}".\`; return; } }
       const crits=getCriteria(); const missing=[];
       for(let i=0;i<crits.length;i++){
         const want=canonicalToken(tokens[i]); const levels=mapLevelsForCriterion(crits[i]);
@@ -1056,7 +1078,7 @@ ${levels}
         if(!entry || !entry.input){ missing.push(i+1); continue; }
         const ok=ensureSelected(entry); if(!ok) missing.push(i+1);
       }
-      errorEl.textContent = missing.length ? `Could not select for criteria: ${missing.join(', ')}. (Try clicking once in the rubric then Apply again.)` : 'Grades applied ✔';
+      errorEl.textContent = missing.length ? \`Could not select for criteria: \${missing.join(', ')}. (Try clicking once in the rubric then Apply again.)\` : 'Grades applied ✔';
     });
     $('#export').addEventListener('click',()=>{ try{ transformTokensOnce(document); }catch(_){} try{ if (window.__rtHidePanel) window.__rtHidePanel(); }catch(_){ } openReportWindowSyncOrFallback(); });
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moodle Rubric - A4 Export + Quick Grade
 // @namespace    https://github.com/raffitch/moodle-rubric-a4-export-userscript
-// @version      4.4.11
+// @version      4.4.12
 // @description  A4 rubric export preview with fit/orientation/font-size controls; highlights selected levels; quick grade tokens; shows gradebook grade and feedback; strips due dates/timestamps; includes quota shield.
 // @author       raffitch
 // @license      MIT
@@ -84,8 +84,16 @@
 
     .gradingform_rubric .criteria .criterion .description,
     .gradingform_rubric .criteria .criterion .criteriondescription {
-      white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
-      max-width: 60ch; display: block; margin: 0 !important;
+      font-size: 72% !important;
+      line-height: 1.15 !important;
+      max-width: 52ch;
+      margin: 0 !important;
+      display: -webkit-box !important;
+      -webkit-box-orient: vertical !important;
+      -webkit-line-clamp: 2 !important;
+      white-space: normal !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
     }
     .gradingform_rubric .criteria .criterion { padding: .2rem 0 !important; }
     .gradingform_rubric .criteria .criterion .remark,
